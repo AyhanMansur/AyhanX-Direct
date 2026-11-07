@@ -1,0 +1,53 @@
+# Cloudflare clean IPs / domains for CDN configs.
+# The installer downloads this list, tests every entry against YOUR CDN domain
+# through Cloudflare, and uses the first N that work.
+# Checked 2026-11-07: served by Cloudflare and reachable over TCP 443 + 2053
+# from 5 Iranian test nodes (check-host.net ir1/3/4/5/6, Tehran data centers).
+# Mobile and home ISPs can differ — remove what does not work for you and
+# open a pull request with addresses that do.
+
+# --- domains (resolved by the client) ---
+time.is
+creativecommons.org
+www.digitalocean.com
+www.canva.com
+www.npmjs.com
+www.udemy.com
+cdnjs.com
+
+# --- IPs ---
+172.67.153.64
+141.101.120.172
+104.19.214.18
+104.16.165.243
+188.114.98.19
+172.66.160.120
+190.93.246.88
+188.114.99.132
+104.17.24.19
+104.21.114.162
+104.24.68.75
+188.114.97.156
+162.159.140.108
+141.101.121.20
+104.21.63.243
+188.114.97.251
+104.27.49.141
+190.93.244.210
+104.25.60.147
+104.16.77.102
+188.114.96.74
+104.27.96.96
+104.18.29.233
+104.19.44.112
+188.114.99.108
+188.114.98.31
+141.101.120.247
+104.18.109.10
+162.159.135.126
+104.17.48.94
+141.101.121.196
+190.93.246.178
+104.25.214.37
+172.67.92.179
+190.93.244.81
