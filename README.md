@@ -19,25 +19,23 @@
 
 ---
 
-## 🌟 About
+## 🌟 درباره پروژه
 
-**AyhanX-Direct** adds a complete, professional, censorship-resistant config pack to your **existing** panel in one command.
+**AyhanX-Direct** با یک دستور، یک بسته کامل و حرفه‌ای از کانفیگ‌های مقاوم در برابر سانسور را به **پنل موجود شما** اضافه می‌کند.
 
-> 🔒 **Nothing is deleted or edited.** No existing inbound, client, or host is touched.
+> 🔒 **هیچ چیزی حذف یا ویرایش نمی‌شود.** هیچ inbound، کلاینت یا هاستی دست نمی‌خورد.
 
-This project is a fork of [pdnczone/3x-ui-pro-configs](https://github.com/pdnczone/3x-ui-pro-configs) with new features:
+این پروژه فورکی از [pdnczone/3x-ui-pro-configs](https://github.com/pdnczone/3x-ui-pro-configs) است که قابلیت‌های جدیدی دارد:
 
-| | New in AyhanX-Direct |
+| | قابلیت‌های جدید در AyhanX-Direct |
 |---|---|
-| 🔎 | **Scanner**: [describe: clean IPs / ports / SNI] |
-| 🧩 | **Multi-panel support**: [3x-ui, Marzban, ...] |
-| ✨ | [Anything else you added] |
-
+| 🔎 | **اسکنر**: [توضیح دهید: آی‌پی تمیز / پورت / SNI] |
+| 🧩 | **پشتیبانی از چند پنل**: [3x-ui، Marzban، ...] |
 ---
 
-## ⚡ Quick Install
+## ⚡ نصب سریع
 
-Run on your server as **root**:
+روی سرور به‌صورت **root** اجرا کنید:
 
 ```bash
 bash <(curl -Ls https://raw.githubusercontent.com/AyhanMansur/AyhanX-Direct/main/install.sh)
@@ -45,175 +43,170 @@ bash <(curl -Ls https://raw.githubusercontent.com/AyhanMansur/AyhanX-Direct/main
 
 ```mermaid
 flowchart LR
-    A[🔑 Panel login] --> B[🌐 Your domain]
-    B --> C[☁️ CDN domain]
-    C --> D[📦 Pick configs]
-    D --> E[🧊 Clean IPs]
-    E --> F[✅ Auto test]
-    F --> G[🔗 Subscription link]
+    A[🔑 ورود به پنل] --> B[🌐 دامنه شما]
+    B --> C[☁️ دامنه CDN]
+    C --> D[📦 انتخاب کانفیگ‌ها]
+    D --> E[🧊 آی‌پی‌های تمیز]
+    E --> F[✅ تست خودکار]
+    F --> G[🔗 لینک اشتراک]
 ```
 
 <details>
-<summary><b>📋 What the script asks you</b></summary>
+<summary><b>📋 اسکریپت چه چیزهایی می‌پرسد</b></summary>
 
 <br/>
 
-1. **Panel login**: API token (Settings › API Tokens) or username and password.
-2. **Your domain**: points directly to the server (Cloudflare grey cloud). Can issue a Let's Encrypt certificate if you have none.
-3. **CDN domain**: subdomain behind Cloudflare (orange cloud), SSL/TLS mode **Full**.
-4. **Configs**: choose from a menu (comma-separated numbers, or `all`).
-5. **Clean Cloudflare IP count**: default `20`.
+1. **ورود به پنل**: توکن API (از Settings › API Tokens) یا نام کاربری و رمز عبور.
+2. **دامنه شما**: مستقیماً به سرور اشاره می‌کند (ابر خاکستری Cloudflare). اگر گواهی ندارید، می‌تواند گواهی Let's Encrypt صادر کند.
+3. **دامنه CDN**: زیردامنه‌ای پشت Cloudflare (ابر نارنجی)، حالت SSL/TLS روی **Full**.
+4. **کانفیگ‌ها**: از منو انتخاب کنید (شماره‌ها با کاما جدا شده، یا `all`).
+5. **تعداد آی‌پی تمیز Cloudflare**: پیش‌فرض `20`.
 
 </details>
 
 ---
 
-## 📦 Configs
+## 📦 کانفیگ‌ها
 
-| | Config | Description |
+| | کانفیگ | توضیح |
 |:-:|---|---|
-| ⚡ | **Reality Vision** | Main config, fastest and stealthiest |
-| 🌀 | **Reality XHTTP** | REALITY over XHTTP with padding |
-| 🔷 | **Reality gRPC** | REALITY over gRPC |
-| 🔐 | **TLS Vision** | Real certificate, plus 🧩 Fragment and 6️⃣ IPv6 variants |
-| 🛰 | **TLS XHTTP** | Direct and via CDN |
-| 🌐 | **CDN WS** | Through Cloudflare, plus 🧊 clean IPs |
-| 🔗 | **CDN HTTPUpgrade** | Through Cloudflare |
-| 🚄 | **Hysteria2** | UDP/QUIC with FinalMask Salamander |
-| 🧬 | **PQ Sudoku** | Post-quantum VLESS with FinalMask Sudoku *(experimental)* |
-| 🛟 | **Shadowsocks-2022** | Backup |
+| ⚡ | **Reality Vision** | کانفیگ اصلی، سریع‌ترین و مخفی‌ترین |
+| 🌀 | **Reality XHTTP** | REALITY روی XHTTP با padding |
+| 🔷 | **Reality gRPC** | REALITY روی gRPC |
+| 🔐 | **TLS Vision** | گواهی واقعی، به‌همراه 🧩 Fragment و 6️⃣ نسخه‌های IPv6 |
+| 🛰 | **TLS XHTTP** | مستقیم و از طریق CDN |
+| 🌐 | **CDN WS** | از طریق Cloudflare، به‌همراه 🧊 آی‌پی‌های تمیز |
+| 🔗 | **CDN HTTPUpgrade** | از طریق Cloudflare |
+| 🚄 | **Hysteria2** | UDP/QUIC با FinalMask Salamander |
+| 🧬 | **PQ Sudoku** | VLESS پسا‌کوانتومی با FinalMask Sudoku *(آزمایشی)* |
+| 🛟 | **Shadowsocks-2022** | پشتیبان |
 
 ### 🎭 FinalMask
 
-| Mask | Where | What it does |
+| ماسک | کجا | چه کار می‌کند |
 |---|---|---|
-| **Fragment** | TLS and CDN configs (client-side) | Splits the ClientHello into pieces |
-| **Salamander** | Hysteria2 | Obfuscates QUIC traffic |
-| **Sudoku** | PQ | Masks the post-quantum handshake |
+| **Fragment** | کانفیگ‌های TLS و CDN (سمت کلاینت) | ClientHello را به قطعات تقسیم می‌کند |
+| **Salamander** | Hysteria2 | ترافیک QUIC را مبهم می‌کند |
+| **Sudoku** | PQ | دست‌دادن پسا‌کوانتومی را پنهان می‌کند |
 
-All configs live under **one new client** with **one subscription link**. If the server's IPv6 works, an IPv6 version is created too.
+همه کانفیگ‌ها زیر **یک کلاینت جدید** با **یک لینک اشتراک** قرار می‌گیرند. اگر IPv6 سرور کار کند، نسخه IPv6 هم ساخته می‌شود.
 
-> 💡 For FinalMask configs, use the **JSON subscription** with an **Xray-core 26** client (recent v2rayNG or v2rayN). Hysteria2 + Salamander also works in Hiddify and NekoBox.
+> 💡 برای کانفیگ‌های FinalMask از **اشتراک JSON** با کلاینت **Xray-core 26** (v2rayNG یا v2rayN جدید) استفاده کنید. Hysteria2 + Salamander در Hiddify و NekoBox هم کار می‌کند.
 
 ---
-
-## 🔎 Scanner
-
-[Describe your scanner here.]
 
 ```bash
-[command to run the scanner]
 ```
 
-| Option | Description |
+| گزینه | توضیح |
 |---|---|
-| `[option]` | [description] |
+| `[گزینه]` | [توضیح] |
 
 ---
 
-## 🧩 Supported Panels
+## 🧩 پنل‌های پشتیبانی‌شده
 
-| Panel | Version | Status |
+| پنل | نسخه | وضعیت |
 |---|---|---|
-| **3x-ui** | 3.x (Clients and Hosts) | ✅ Supported |
-| [Panel 2] | [version] | [status] |
-| [Panel 3] | [version] | [status] |
+| **3x-ui** | 3.x (Clients و Hosts) | ✅ پشتیبانی می‌شود |
+| [پنل ۲] | [نسخه] | [وضعیت] |
+| [پنل ۳] | [نسخه] | [وضعیت] |
 
-### Requirements
+### پیش‌نیازها
 
-- Ubuntu or Debian with `python3`, `curl`, `openssl`
-- **Xray-core 26.x** (FinalMask, Hysteria2, PQ are skipped automatically if missing)
-- Open the ports shown at the end of install in your cloud firewall (IPv4 + IPv6, and UDP for Hysteria2)
+- Ubuntu یا Debian با `python3`، `curl`، `openssl`
+- **Xray-core 26.x** (اگر نباشد، FinalMask، Hysteria2 و PQ به‌طور خودکار رد می‌شوند)
+- پورت‌هایی که در پایان نصب نمایش داده می‌شوند را در فایروال ابری خود باز کنید (IPv4 + IPv6، و UDP برای Hysteria2)
 
 ---
 
-## ⚙️ Port Conflicts
+## ⚙️ تداخل پورت‌ها
 
-Two inbounds can never share a port. The script checks every panel inbound and every program on the server first. If a port is busy, it tells you who uses it:
+دو inbound هرگز نمی‌توانند یک پورت را به اشتراک بگذارند. اسکریپت ابتدا هر inbound پنل و هر برنامه روی سرور را بررسی می‌کند. اگر پورتی اشغال باشد، به شما می‌گوید چه کسی از آن استفاده می‌کند:
 
-| Key | Action |
+| کلید | عملکرد |
 |:-:|---|
-| `Enter` | Picks the next free port *(recommended)* |
-| `123` | Your own port (rejected if also busy) |
-| `o` | **Origin Rule mode** (CDN only): client uses 443, Cloudflare forwards to any free port |
-| `s` | Skip this config, your inbound stays as is |
+| `Enter` | پورت آزاد بعدی را انتخاب می‌کند *(پیشنهادی)* |
+| `123` | پورت دلخواه شما (اگر اشغال باشد رد می‌شود) |
+| `o` | **حالت Origin Rule** (فقط CDN): کلاینت از 443 استفاده می‌کند، Cloudflare به هر پورت آزادی فوروارد می‌کند |
+| `s` | این کانفیگ را رد کن، inbound شما همان‌طور که هست می‌ماند |
 
 <details>
-<summary><b>📌 Notes</b></summary>
+<summary><b>📌 نکات</b></summary>
 
 <br/>
 
-- **CDN**: Cloudflare only proxies `443 2053 2083 2087 2096 8443`. If all are busy, use `o`. The script prints the exact rule to add under *Rules › Origin Rules*:
+- **CDN**: Cloudflare فقط پورت‌های `443 2053 2083 2087 2096 8443` را پروکسی می‌کند. اگر همه اشغال باشند، از `o` استفاده کنید. اسکریپت قانون دقیقی را که باید در *Rules › Origin Rules* اضافه کنید چاپ می‌کند:
   `Hostname = cdn… AND URI Path starts with /…  →  Destination port = …`
-- **REALITY on 443**: if 443 is used, the new config gets another port. To use 443, move your old inbound in the panel and run the script again.
-- **Auto mode**: `--ports auto` (or `--yes`) always takes the next free port. A CDN config with no free Cloudflare port is skipped.
+- **REALITY روی 443**: اگر 443 استفاده شده باشد، کانفیگ جدید پورت دیگری می‌گیرد. برای استفاده از 443، inbound قدیمی را در پنل جابه‌جا کنید و اسکریپت را دوباره اجرا کنید.
+- **حالت خودکار**: `--ports auto` (یا `--yes`) همیشه پورت آزاد بعدی را می‌گیرد. کانفیگ CDN بدون پورت آزاد Cloudflare رد می‌شود.
 
 </details>
 
 ---
 
-## 🛡 Safety
+## 🛡 امنیت
 
-- 💾 **Backup first**: `/etc/x-ui/x-ui.db.bak-pro-*`
-- 🔁 **One by one**: each inbound is added and verified immediately. If Xray rejects it, only that inbound is rolled back.
-- 🧰 **Minimal global changes**, both additive only:
-  - enabling JSON subscription
-  - setting `remarkTemplate` to `{{HOST}}` (you are asked first)
+- 💾 **اول پشتیبان‌گیری**: `/etc/x-ui/x-ui.db.bak-pro-*`
+- 🔁 **یکی‌یکی**: هر inbound بلافاصله اضافه و تأیید می‌شود. اگر Xray آن را رد کند، فقط همان inbound برگشت داده می‌شود.
+- 🧰 **حداقل تغییرات سراسری**، هر دو فقط افزودنی:
+  - فعال‌سازی اشتراک JSON
+  - تنظیم `remarkTemplate` روی `{{HOST}}` (اول از شما پرسیده می‌شود)
 
 ---
 
-## 🤖 Non-Interactive Mode
+## 🤖 حالت غیرتعاملی
 
 ```bash
 bash <(curl -Ls https://raw.githubusercontent.com/AyhanMansur/AyhanX-Direct/main/install.sh) \
   --yes --token <API_TOKEN> --domain my.example.com --cdn cdn.example.com --configs all --clean 20
 ```
 
-| Option | Description |
+| گزینه | توضیح |
 |---|---|
-| `--configs` | `all` or list: `rv,rx,rg,tv,tx,ws,hu,hy,pq,ss` |
-| `--clean N` | Cloudflare clean-IP configs (0–30) |
-| `--ports auto\|ask` | Port-conflict behavior |
-| `--email E` | Name of the new client |
-| `--dry-run` | Show the plan, change nothing |
-| `--no-bbr`, `--no-test` | Skip BBR / skip connection test |
-| `[--panel X]` | [panel type, if you added it] |
-| `[--scan]` | [run scanner, if you added it] |
+| `--configs` | `all` یا لیست: `rv,rx,rg,tv,tx,ws,hu,hy,pq,ss` |
+| `--clean N` | تعداد کانفیگ‌های آی‌پی تمیز Cloudflare (۰–۳۰) |
+| `--ports auto\|ask` | رفتار در تداخل پورت |
+| `--email E` | نام کلاینت جدید |
+| `--dry-run` | نمایش برنامه، بدون هیچ تغییری |
+| `--no-bbr`، `--no-test` | رد کردن BBR / رد کردن تست اتصال |
+| `[--panel X]` | [نوع پنل، اگر اضافه کرده‌اید] |
+| `[--scan]` | [اجرای اسکنر، اگر اضافه کرده‌اید] |
 
 ---
 
-## 🧊 Clean IPs
+## 🧊 آی‌پی‌های تمیز
 
-The list lives in `clean-ips.txt`. Each run downloads it, tests every address through Cloudflare using **your** CDN domain, and keeps only the healthy ones.
+لیست در فایل `clean-ips.txt` قرار دارد. هر بار اجرا آن را دانلود می‌کند، هر آدرس را از طریق Cloudflare با **دامنه CDN شما** تست می‌کند و فقط سالم‌ها را نگه می‌دارد.
 
-> ⚠️ These addresses were reachable from 5 test nodes in Iran (Tehran data centers). Mobile or home connections may differ. Found IPs that work for you? Send a Pull Request!
+> ⚠️ این آدرس‌ها از ۵ نود تست در ایران (دیتاسنترهای تهران) در دسترس بودند. اتصالات موبایل یا خانگی ممکن است متفاوت باشد. آی‌پی‌هایی پیدا کردید که برایتان کار می‌کند؟ Pull Request بفرستید!
 
-## 🔗 **Useful Links**
+## 🔗 **لینک‌های مفید**
 
-| Resource | Address |
+| منبع | آدرس |
 | --- | --- |
-| Project repository | [AyhanMansur/Xui-Panel](https://github.com/AyhanMansur/AyhanX-Direct) |
-| Main Project repository | [pdnczone/3x-ui-pro-config](https://github.com/pdnczone/3x-ui-pro-configs) |
-| Main 3X-UI panel | [MHSanaei/3x-ui](https://github.com/mhsanaei/3x-ui) |
+| مخزن پروژه | [AyhanMansur/Xui-Panel](https://github.com/AyhanMansur/AyhanX-Direct) |
+| مخزن پروژه اصلی | [pdnczone/3x-ui-pro-config](https://github.com/pdnczone/3x-ui-pro-configs) |
+| پنل اصلی 3X-UI | [MHSanaei/3x-ui](https://github.com/mhsanaei/3x-ui) |
 
 ---
 
-## 🤝 **Contribute!**
+## 🤝 **مشارکت!**
 
-If you have an idea for improvement, we'd be happy if you:
+اگر ایده‌ای برای بهبود دارید، خوشحال می‌شویم:
 
-* Open an **Issue**
-* Send a **Pull Request**
-* Or even give us a **Star** ⭐ so others can find it too!
+* یک **Issue** باز کنید
+* یک **Pull Request** بفرستید
+* یا حتی یک **Star** ⭐ بدهید تا دیگران هم آن را پیدا کنند!
 
 ---
 
-## 📜 **License**
+## 📜 **مجوز**
 
-This project is released under the **MIT** license — free to use, modify, and distribute.
+این پروژه تحت مجوز **MIT** منتشر شده است — آزاد برای استفاده، تغییر و توزیع.
 
 ---
 
 <p align="center">
-  <b>Made with ❤️ by Ayhan Mansur</b>
+  <b>ساخته‌شده با ❤️ توسط Ayhan Mansur</b>
 </p>
