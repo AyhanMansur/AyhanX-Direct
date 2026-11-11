@@ -8,11 +8,13 @@
 
 <br/>
 
-![License](https://img.shields.io/badge/License-MIT-24c6dc?style=for-the-badge)
-![Platform](https://img.shields.io/badge/Ubuntu%20%7C%20Debian-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)
-![Xray](https://img.shields.io/badge/Xray--core-26.x-302b63?style=for-the-badge)
-![Shell](https://img.shields.io/badge/Bash%20%2B%20Python-4EAA25?style=for-the-badge&logo=gnubash&logoColor=white)
-![Stars](https://img.shields.io/github/stars/AyhanMansur/AyhanX-Direct?style=for-the-badge&color=f5c542)
+
+[![Linux](https://img.shields.io/badge/Linux-Any-FCC624?logo=linux)](https://linux.org)
+[![Python](https://img.shields.io/badge/Bash%2B-3776AB?logo=Shell)](https://python.org)
+[![Xray](https://img.shields.io/badge/XrayCore-26%2B-3776AB?logo=Xray-Core)](https://python.org)
+[![License](https://img.shields.io/badge/License-MIT-yellow)](https://github.com/AyhanMansur/AyhanX-Direct/)
+[![Star](https://img.shields.io/github/stars/AyhanMansur/AyhanX-Torigato?style=social)](https://github.com/AyhanMansur/AyhanX-Direct/)
+[![Fork](https://img.shields.io/github/forks/AyhanMansur/AyhanX-Torigato?style=social)](https://github.com/AyhanMansur/AyhanX-Direct/)
 
 </div>
 
