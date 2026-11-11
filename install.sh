@@ -1,40 +1,11 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  3x-ui Pro Configs + Proxy Scanner  —  https://github.com/pdnczone/3x-ui-pro-configs
-#
-#  Adds a professional, censorship-resistant set of configs to an EXISTING
-#  3x-ui panel: REALITY (Vision / XHTTP / gRPC), TLS (Vision / XHTTP),
-#  Cloudflare CDN (XHTTP / WS / HTTPUpgrade + clean IPs), Hysteria2 with
-#  Salamander, post-quantum VLESS with Sudoku, Shadowsocks-2022.
-#  FinalMask (fragment / salamander / sudoku) where it helps.
-#
-#  ADD-ONLY: never deletes or edits your existing inbounds, clients or hosts.
-#
-#  Install:
-#    bash <(curl -Ls https://raw.githubusercontent.com/pdnczone/3x-ui-pro-configs/main/install.sh)
-#
-#  Local usage:
-#    bash install.sh                       # interactive: prompt 1/2/3
-#    bash install.sh --yes --token T ...   # non-interactive installer only
-#    bash install.sh --scan                # scanner only
-#    bash install.sh --install             # installer only (no scanner prompt)
-#
-#  Options:
-#    --domain D      domain pointing straight to this server (Cloudflare: DNS only / grey)
-#    --cdn C         domain proxied by Cloudflare (orange) to this server
-#    --configs L     comma list or "all":  rv,rx,rg,tv,tx,ws,hu,hy,pq,ss
-#    --clean N       Cloudflare clean-IP configs (0-30, default 20)
-#    --email E       new client name
-#    --token T       panel API token (Settings > API Tokens)
-#    --ports auto|ask   what to do when a port is busy
-#    --no-bbr --no-test --yes --dry-run
-#    --scan --install --no-scan
-#    --scan-limit N
+#  3x-ui Pro Configs + Proxy Scanner
+#  Repo: https://github.com/AyhanMansur/AyhanX-Direct
 # =============================================================================
 set -euo pipefail
 [ "$(id -u)" = "0" ] || { echo "Please run as root (sudo -i)."; exit 1; }
 
-# ─────────────── package manager detection ───────────────
 PKG=""; PKG_NAME=""
 if   command -v apt-get >/dev/null; then PKG="apt-get install -y"; PKG_NAME="apt"
 elif command -v apt     >/dev/null; then PKG="apt install -y";     PKG_NAME="apt"
@@ -43,7 +14,6 @@ elif command -v yum     >/dev/null; then PKG="yum install -y";     PKG_NAME="yum
 elif command -v apk     >/dev/null; then PKG="apk add --no-cache"; PKG_NAME="apk"
 elif command -v pacman  >/dev/null; then PKG="pacman -S --noconfirm"; PKG_NAME="pacman"
 fi
-
 need() {
     local bin="$1" pkg="${2:-$1}"
     if ! command -v "$bin" >/dev/null 2>&1; then
@@ -51,25 +21,17 @@ need() {
             echo "[!] installing $pkg via $PKG_NAME …"
             $PKG "$pkg" >/dev/null 2>&1 || true
         fi
-        command -v "$bin" >/dev/null 2>&1 || {
-            echo "[x] missing $bin ($pkg) — install it and retry"
-            exit 1
-        }
+        command -v "$bin" >/dev/null 2>&1 || { echo "[x] missing $bin ($pkg) — install it and retry"; exit 1; }
     fi
 }
-
 need python3 python3
 need curl    curl
 need openssl openssl
 need ss      iproute2
-
-# pipx — install silently; scanner has pip fallbacks if this fails
 if ! command -v pipx >/dev/null 2>&1 && [ -n "$PKG" ]; then
     echo "[!] installing pipx via $PKG_NAME …"
     $PKG pipx >/dev/null 2>&1 || true
 fi
-
-# xclip — only if we have a display and apt
 if { [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; } \
    && ! command -v xclip >/dev/null 2>&1 \
    && command -v apt-get >/dev/null 2>&1; then
@@ -78,6 +40,7 @@ if { [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; } \
 fi
 
 REPO_RAW="https://raw.githubusercontent.com/pdnczone/3x-ui-pro-configs/main"
+USER_REPO="https://github.com/AyhanMansur/AyhanX-Direct"
 TMPPY=$(mktemp /tmp/xui-pro.XXXXXX.py)
 trap 'rm -f "$TMPPY"' EXIT
 cat > "$TMPPY" <<'PYEOF'
@@ -121,9 +84,10 @@ BANNER = r"""
   ▒   ▒▒ ░▓██ ░▒░  ▒ ░▒░ ░  ▒   ▒▒ ░░ ░░   ░ ▒░░░   ░▒ ░ ░ ▒  ▒  ▒ ░  ░▒ ░ ▒░ ░ ░  ░  ░  ▒       ░    
   ░   ▒   ▒ ▒ ░░   ░  ░░ ░  ░   ▒      ░   ░ ░  ░    ░   ░ ░  ░  ▒ ░  ░░   ░    ░   ░          ░      
       ░  ░░ ░      ░  ░  ░      ░  ░         ░  ░    ░     ░     ░     ░        ░  ░░ ░               
-          ░ ░                                            ░                          ░                                                                                                                       
+          ░ ░                                            ░                          ░
 """
-PRO_TITLE = f"{B}{C}3x-ui Pro Configs  ·  add-only installer{N}"
+USER_REPO  = "https://github.com/AyhanMansur/AyhanX-Direct"
+PRO_TITLE  = f"{B}{C}3x-ui Pro Configs  ·  add-only installer{N}"
 SCAN_TITLE = f"{B}{C}Proxy Scanner  ·  range / domain → link builder{N}"
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -197,10 +161,8 @@ def ensure_requests():
 
     pipx = shutil.which("pipx")
     if pipx:
-        if not _pipx_has("requests") and not _pipx_install("requests"):
-            pass
-        if add_pipx_venv_to_path("requests") and try_import_after():
-            return True
+        if not _pipx_has("requests") and not _pipx_install("requests"): pass
+        if add_pipx_venv_to_path("requests") and try_import_after(): return True
 
     for cmd in (["pip","install","--user","requests"],
                 [sys.executable,"-m","pip","install","--user","requests"]):
@@ -230,9 +192,11 @@ def scan_host(host):
 
 def scan_network(network_str, limit=None):
     try:
-        n = ip_network(network_str, strict=False); addrs = list(n.hosts())
+        n = ip_network(network_str, strict=False)
+        addrs = list(n.hosts())
         if limit is not None: addrs = addrs[:limit]
-        print(f"{random.choice(colors)}🔍 Scanning {network_str} ({len(addrs)} addresses)...{ENDC}")
+        fam = "IPv6" if n.version == 6 else "IPv4"
+        print(f"{random.choice(colors)}🔍 Scanning {fam} {network_str} ({len(addrs)} addresses)...{ENDC}")
         a = []
         for ip in addrs:
             if scan_host(str(ip)):
@@ -249,6 +213,39 @@ def scan_domains(dl, limit=None):
         if scan_host(d): a.append(d); print(f"{OKGREEN}   ✅ {d} is active{ENDC}")
     return a, len(dl)
 
+def check_clean_ip(host, cdn_host, cdn_port, timeout=6, max_ms=1500):
+    """Return (ip, latency_ms) if `host` reaches Cloudflare via HTTP on cdn_port, else None."""
+    ip = host
+    if not re.match(r"^[\d.]+$", host):
+        try:
+            for _, _, _, _, sa in socket.getaddrinfo(host, None, socket.AF_INET):
+                ip = sa[0]; break
+        except Exception:
+            return None
+    if not re.match(r"^[\d.]+$", ip):
+        return None
+    r = sh(f"curl -s -o /dev/null -m{timeout} -w '%{{http_code}} %{{time_connect}}' "
+           f"--resolve {cdn_host}:{cdn_port}:{ip} https://{cdn_host}:{cdn_port}/", timeout + 4)
+    code, _, t = r.partition(" ")
+    if not code or code == "000": return None
+    try: ms = int(float(t or 0) * 1000)
+    except Exception: ms = 9999
+    if code in ("200","204","301","302","403") and ms <= max_ms:
+        return ip, ms
+    return None
+
+def write_clean_ips(items, filename="clean-ips.txt"):
+    try:
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write("# Cloudflare clean IPs — verified via HTTP connect\n")
+            f.write(f"# generated {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            for ip, ms in items:
+                f.write(f"{ip}  # {ms}ms\n")
+        print(f"{OKGREEN}✅ wrote {len(items)} clean IPs → {os.path.abspath(filename)}{ENDC}")
+    except Exception as e:
+        print(f"{WARNING}⚠️ could not write {filename}: {e}{ENDC}")
+
+# ─────────────── proxy link parse / build ───────────────
 def parse_proxy_link(link):
     link = link.strip()
     if not any(link.startswith(s+'://') for s in ['vless','vmess','trojan','ss','hysteria','hysteria2']):
@@ -413,7 +410,8 @@ def copy_to_clipboard(text):
 
 def run_scanner(default_template=None):
     print(f"{B}{C}{BANNER}{N}")
-    print(f"{D}        {SCAN_TITLE}{N}\n")
+    print(f"{D}        {SCAN_TITLE}{N}")
+    print(f"{D}        {USER_REPO}{N}\n")
     start = ask(f"{CYAN}❓ Start scan? [Y/n]{ENDC}", "y").strip().lower()
     if start == 'n': print(f"{YELLOW}🚫 Cancelled.{ENDC}"); return
     if default_template:
@@ -427,18 +425,30 @@ def run_scanner(default_template=None):
     if template:
         try: pc = parse_proxy_link(template); print(f"{OKGREEN}✅ Scheme: {pc['scheme']}{ENDC}")
         except Exception as e: print(f"{WARNING}⚠️ Parse failed: {e}{ENDC}")
-    ch = ask(f"{CYAN}❓ 1 = IP range, 2 = domain{ENDC}", "1").strip()
-    while ch not in ('1','2'): ch = ask(f"{CYAN}❓ 1 = IP range, 2 = domain{ENDC}", "1").strip()
-    if ch == '2':
-        url = "https://raw.githubusercontent.com/AyhanMansur/AyhanX-Fredom-Scanner/refs/heads/main/domains.txt"
-        cache, typ = "domains_cache.txt", "domains"
+
+    ch = ask(f"{CYAN}❓ 1 = IPv4 ranges, 2 = IPv6 ranges, 3 = domains{ENDC}", "1").strip()
+    while ch not in ('1','2','3'):
+        ch = ask(f"{CYAN}❓ 1 = IPv4 ranges, 2 = IPv6 ranges, 3 = domains{ENDC}", "1").strip()
+
+    RANGE_DIR = ("https://raw.githubusercontent.com/AyhanMansur/AyhanX-Fredom-Scanner/refs/heads/main/"
+                 "%F0%9D%94%B8%F0%9D%95%AA%F0%9D%95%99%F0%9D%95%92%F0%9D%95%9F%F0%9D%95%8F-%F0%9D%94%BD"
+                 "%F0%9D%95%A3%F0%9D%95%96%F0%9D%95%95%F0%9D%95%A0%F0%9D%95%9E-%F0%9D%95%8A%F0%9D%95%94"
+                 "%F0%9D%95%92%F0%9D%95%9F%F0%9D%95%9F%F0%9D%95%96%F0%9D%95%A3-%F0%9F%A7%91%E2%80%8D"
+                 "%F0%9F%92%BB%F0%9F%8C%BF")
+
+    if ch == '3':
+        url   = "https://raw.githubusercontent.com/AyhanMansur/AyhanX-Fredom-Scanner/refs/heads/main/domains.txt"
+        cache = "domains_cache.txt"
+        typ   = "domains"
+    elif ch == '2':
+        url   = RANGE_DIR + "/IPV6.Range.txt"
+        cache = "ranges_v6_cache.txt"
+        typ   = "IPv6 ranges"
     else:
-        url = ("https://raw.githubusercontent.com/AyhanMansur/AyhanX-Fredom-Scanner/refs/heads/main/"
-               "%F0%9D%94%B8%F0%9D%95%AA%F0%9D%95%99%F0%9D%95%92%F0%9D%95%9F%F0%9D%95%8F-%F0%9D%94%BD"
-               "%F0%9D%95%A3%F0%9D%95%96%F0%9D%95%95%F0%9D%95%A0%F0%9D%95%9E-%F0%9D%95%8A%F0%9D%95%94"
-               "%F0%9D%95%92%F0%9D%95%9F%F0%9D%95%9F%F0%9D%95%96%F0%9D%95%A3-%F0%9F%A7%91%E2%80%8D"
-               "%F0%9F%92%BB%F0%9F%8C%BF/Range.txt")
-        cache, typ = "ranges_cache.txt", "IP ranges"
+        url   = RANGE_DIR + "/IPV4.Range.txt"
+        cache = "ranges_v4_cache.txt"
+        typ   = "IPv4 ranges"
+
     items = get_cached_list(url, cache)
     if A.scan_limit is not None: li = str(A.scan_limit)
     else: li = ask(f"{CYAN}🔢 How many items? (Enter = all){ENDC}", "")
@@ -448,23 +458,49 @@ def run_scanner(default_template=None):
             lim = int(li)
             if lim <= 0: raise ValueError
         except ValueError: print(f"{WARNING}⚠️ invalid number — scanning all{ENDC}"); lim = None
+
     print(f"{LITBU}🚀 Scanning...{ENDC}\n")
     all_a, tot = [], 0
-    if ch == '2': all_a, tot = scan_domains(items, lim)
+    if ch == '3':
+        all_a, tot = scan_domains(items, lim)
     else:
         rem = lim
         for r in items:
             if rem is not None and rem <= 0: break
             a, s = scan_network(r, rem); all_a.extend(a); tot += s
             if rem is not None: rem -= s
+
     print(f"\n{BOLD}{OKGREEN}📊 Summary:{ENDC}")
     print(f"{CYAN}   ➤ scanned: {tot}{ENDC}")
     print(f"{OKGREEN}   ➤ active:  {len(all_a)}{ENDC}")
     if all_a:
-        print(f"\n{YELLOW}📝 Active {'domains' if ch=='2' else 'IPs'}:{ENDC}")
+        print(f"\n{YELLOW}📝 Active hosts:{ENDC}")
         for it in all_a: print(f"   {OKGREEN}► {it}{ENDC}")
     else:
         print(f"{WARNING}⚠️ no active hosts{ENDC}")
+
+    # ── auto clean-IP verification (only if we have a CDN target) ─────────────
+    cdn_host = A.cdn or A.domain or ""
+    cdn_port = 443
+    if all_a and cdn_host:
+        print(f"\n{LITBU}🧪 verifying {len(all_a)} active hosts against {cdn_host}:{cdn_port} …{ENDC}")
+        clean = []
+        with cfut.ThreadPoolExecutor(16) as ex:
+            futs = {ex.submit(check_clean_ip, h, cdn_host, cdn_port): h for h in all_a}
+            for fut in cfut.as_completed(futs):
+                r = fut.result()
+                if r:
+                    clean.append(r)
+                    print(f"{OKGREEN}   ✔ {r[0]}  ({r[1]}ms){ENDC}")
+        clean.sort(key=lambda t: t[1])
+        if clean:
+            write_clean_ips(clean, "clean-ips.txt")
+        else:
+            print(f"{WARNING}⚠️ none of the active hosts answered as Cloudflare on {cdn_host}:{cdn_port}{ENDC}")
+    elif all_a and not cdn_host:
+        print(f"{D}   · no --cdn/--domain set, skipping clean-IP verification{N}")
+
+    # ── proxy link generation ────────────────────────────────────────────────
     gen = []
     if pc and all_a:
         print(f"\n{LITBU}📦 Generating {pc['scheme']} links...{ENDC}")
@@ -477,7 +513,8 @@ def run_scanner(default_template=None):
 #  MODE SELECTION
 # ═══════════════════════════════════════════════════════════════════════════
 print(f"{B}{C}{BANNER}{N}")
-print(f"{D}        {PRO_TITLE}  ·  {SCAN_TITLE}{N}\n")
+print(f"{D}        {PRO_TITLE}  ·  {SCAN_TITLE}{N}")
+print(f"{D}        {USER_REPO}{N}\n")
 
 if A.scan:
     clear_screen()
@@ -754,7 +791,6 @@ def free_from(lst, key):
 
 head("4/4  Ports")
 PLAN = {}
-ORIGIN_RULES = []
 for key, name, _, _ in SEL:
     want = PREF[key][0]
     who = busy(want, key)
@@ -814,7 +850,12 @@ sni = lambda i: GOOD_SNI[i % len(GOOD_SNI)]
 
 CLEAN = []
 if CLEAN_N and CDN:
-    lst = sh(f"curl -fsSL -m10 {REPO_RAW}/clean-ips.txt") if REPO_RAW else ""
+    # prefer a locally generated clean-ips.txt (from the scanner) over the remote list
+    if os.path.exists("clean-ips.txt") and os.path.getsize("clean-ips.txt") > 0:
+        lst = open("clean-ips.txt", "r", encoding="utf-8").read()
+        info("using local clean-ips.txt (from scanner)")
+    else:
+        lst = sh(f"curl -fsSL -m10 {REPO_RAW}/clean-ips.txt") if REPO_RAW else ""
     cand = [l.split("#")[0].strip() for l in lst.splitlines() if l.split("#")[0].strip()]
     if not cand: cand = __FALLBACK_CLEAN__
     cdn_port = next((PLAN[k]["port"] for k in ("ws", "hu", "tx") if k in PLAN and not PLAN[k].get("origin_rule")), None)
@@ -1113,7 +1154,8 @@ if rules_needed:
     print(f"\n  {Y}Cloudflare Origin Rules needed{N} (Rules > Origin Rules > Create):")
     for k, pt in rules_needed:
         print(f"    if Hostname = {CDN} AND URI Path starts with {PATHS.get(k, '/')}  →  Destination port = {pt}")
-print(f"\n  backup: {bak}\n")
+print(f"\n  backup: {bak}")
+print(f"  repo:   {USER_REPO}\n")
 if TEMP_TOKEN_ID is not None:
     api(f"/panel/api/setting/apiTokens/delete/{TEMP_TOKEN_ID}", post=True)
 
@@ -1148,7 +1190,6 @@ if not A.no_scan and not A.install and not A.dry_run and MODE_CHOICE != "install
             run_scanner()
 PYEOF
 
-# inject the fallback clean-IP list into the Python file
 FALLBACK='time.is creativecommons.org www.digitalocean.com www.canva.com www.npmjs.com www.udemy.com cdnjs.com
 172.67.153.64 141.101.120.172 104.19.214.18 104.16.165.243 188.114.98.19 172.66.160.120 190.93.246.88 188.114.99.132
 104.17.24.19 104.21.114.162 104.24.68.75 188.114.97.156 162.159.140.108 141.101.121.20 104.21.63.243 188.114.97.251
