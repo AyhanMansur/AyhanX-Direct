@@ -8,7 +8,6 @@
 
 <br/>
 
-
 [![Linux](https://img.shields.io/badge/Linux-Any-FCC624?logo=linux)](https://linux.org)
 [![Python](https://img.shields.io/badge/Bash%2B-3776AB?logo=Shell)](https://python.org)
 [![Xray](https://img.shields.io/badge/XrayCore-26%2B-3776AB?logo=Xray-Core)](https://python.org)
