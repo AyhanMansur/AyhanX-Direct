@@ -12,7 +12,7 @@
 </div>
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/pdnczone/3x-ui-pro-configs/main/install.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/AyhanMansur/AyhanX-Direct/refs/heads/main/install.sh)
 ```
 
 <div dir="rtl">
