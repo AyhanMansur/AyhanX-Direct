@@ -93,16 +93,8 @@ flowchart LR
 
 > 💡 برای کانفیگ‌های FinalMask از **اشتراک JSON** با کلاینت **Xray-core 26** (v2rayNG یا v2rayN جدید) استفاده کنید. Hysteria2 + Salamander در Hiddify و NekoBox هم کار می‌کند.
 
----
-
 ```bash
 ```
-
-| گزینه | توضیح |
-|---|---|
-| `[گزینه]` | [توضیح] |
-
----
 
 ## 🧩 پنل‌های پشتیبانی‌شده
 
