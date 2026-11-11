@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://capsule-render.vercel.app/api?type=waving&color=0:0f0c29,50:302b63,100:24c6dc&height=220&section=header&text=AyhanX-Direct&fontSize=64&fontColor=ffffff&animation=fadeIn&fontAlignY=38&desc=Anti-censorship%20config%20pack%20%7C%20Scanner%20%7C%20Multi-panel&descAlignY=60&descSize=18" width="100%" alt="AyhanX-Direct banner"/>
+<img width="1856" height="930" alt="Screenshot 2026-11-12 013211" src="https://github.com/user-attachments/assets/9d314781-0c99-469b-b4a0-8fd34e17fa1b"/>
 
 <a href="https://github.com/AyhanMansur/AyhanX-Direct">
   <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=22&pause=1200&color=24C6DC&center=true&vCenter=true&width=640&lines=One+command.+Ten+configs.;Reality+%7C+Hysteria2+%7C+CDN+%7C+PQ;Built-in+scanner+for+clean+IPs;Your+existing+inbounds+stay+untouched" alt="Typing animation"/>
