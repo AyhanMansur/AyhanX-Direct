@@ -187,27 +187,32 @@ The list lives in `clean-ips.txt`. Each run downloads it, tests every address th
 
 > ⚠️ These addresses were reachable from 5 test nodes in Iran (Tehran data centers). Mobile or home connections may differ. Found IPs that work for you? Send a Pull Request!
 
----
+## 🔗 **Useful Links**
 
-## 🤝 Contributing
-
-```bash
-git checkout -b feature/my-feature
-git commit -m "Add my feature"
-git push origin feature/my-feature
-```
-
-Then open a Pull Request. All contributions are welcome. ⭐ A star helps a lot!
+| Resource | Address |
+| --- | --- |
+| Project repository | [AyhanMansur/Xui-Panel](https://github.com/AyhanMansur/AyhanX-Direct) |
+| Main Project repository | [pdnczone/3x-ui-pro-config](https://github.com/pdnczone/3x-ui-pro-configs) |
+| Main 3X-UI panel | [MHSanaei/3x-ui](https://github.com/mhsanaei/3x-ui) |
 
 ---
 
-## ⚠️ Disclaimer
+## 🤝 **Contribute!**
 
-For lawful privacy and network-access use only. You are responsible for following your local laws and the terms of your hosting and CDN providers.
+If you have an idea for improvement, we'd be happy if you:
 
-<br/>
-<center>
-  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:24c6dc,50:302b63,100:0f0c29&height=120&section=footer" width="100%" alt="footer"/>
-  <p>Made with ❤️ by Ayhan Mansur</p>
-</center>
-</div>
+* Open an **Issue**
+* Send a **Pull Request**
+* Or even give us a **Star** ⭐ so others can find it too!
+
+---
+
+## 📜 **License**
+
+This project is released under the **MIT** license — free to use, modify, and distribute.
+
+---
+
+<p align="center">
+  <b>Made with ❤️ by Ayhan Mansur</b>
+</p>
