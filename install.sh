@@ -516,9 +516,13 @@ class PanelPasarguard(PanelBase):
         r = self._http("/api/system", method="GET")
         if isinstance(r, dict) and any(k in r for k in ("version","hostname","xray_version","uptime")):
             return True
+        # strictly reject generic 401 bodies; Pasarguard returns FastAPI-style JSON
         blob = json.dumps(r).lower()
-        return any(tok in blob for tok in ('unauthorized', 'not authenticated', 'detail',
-                                           'www-authenticate', 'token', 'fastapi'))
+        if "fastapi" in blob:
+            return True
+        if "detail" in blob and ("not authenticated" in blob or "not authorized" in blob):
+            return True
+        return False
     def _system(self):
         r = self._http("/api/system", method="GET")
         return r if isinstance(r, dict) else {}
@@ -596,13 +600,14 @@ def _detect_panel():
         die(f"unknown --panel '{force}' (use auto|3xui|pasarguard)")
     if force in ("3xui","3x-ui"):   cands = [Panel3xui]
     elif force == "pasarguard":     cands = [PanelPasarguard]
-    else:                           cands = [Panel3xui, PanelPasarguard]
+    else:
+        # 3x-ui first — its probe is stricter and matches "success:false" bodies
+        cands = [Panel3xui, PanelPasarguard]
 
     urls = []
     if A.panel_url:
         urls.append(A.panel_url.rstrip("/"))
     else:
-        # (1) install-result.env written by x-ui/3x-ui installers
         env = {}
         for p_env in ("/etc/x-ui/install-result.env", "/etc/3x-ui/install-result.env"):
             if os.path.exists(p_env):
@@ -615,7 +620,6 @@ def _detect_panel():
                 break
         xp = env.get("XUI_PANEL_PORT")
         xb = env.get("XUI_WEB_BASE_PATH") or ""
-        # (2) fall back to `x-ui settings`
         if not xp:
             raw = re.sub(r"\x1b\[[0-9;]*m", "", sh("x-ui settings 2>/dev/null"))
             xp = (re.search(r"port:\s*(\d+)", raw) or [None, None])[1]
@@ -625,10 +629,8 @@ def _detect_panel():
             urls.append(f"http://127.0.0.1:{xp}{base_path}")
             if base_path:
                 urls.append(f"http://127.0.0.1:{xp}")
-        # (3) Pasarguard hint when forced
         if force == "pasarguard":
             urls.insert(0, "http://127.0.0.1:8000")
-        # (4) common ports including 1800/1801 for your WSL setup
         for pt in (2053, 2083, 2087, 2096, 8000, 8080, 8443, 9000, 3000, 5000, 1800, 1801):
             urls.append(f"http://127.0.0.1:{pt}")
 
@@ -686,7 +688,7 @@ if not PANEL.token:
     else: die("no token — aborting")
 if not PANEL.probe():
     die(f"Token rejected by {PANEL.name} at {PANEL.base}.")
-if not PANEL._http("/panel/api/inbounds/list").get("success") and PANEL.name == "3x-ui":
+if PANEL.name == "3x-ui" and not PANEL._http("/panel/api/inbounds/list").get("success"):
     die("Token rejected by 3x-ui API.")
 
 XVER = PANEL.xray_version()
@@ -812,8 +814,10 @@ if "ws" in sel_keys or "hu" in sel_keys or "th" in sel_keys or ("tx" in sel_keys
         "How many Cloudflare clean-IP configs (0-30)", "20")) or 0)
     CLEAN_N = max(0, min(30, CLEAN_N))
 
-# =========================================================================== ports
-owner_tcp, owner_udp = PANEL.ports_owned()
+# =========================================================================== ports  ← BUG 1 FIX
+owner_tcp_set, owner_udp_set = PANEL.ports_owned()
+owner_tcp = {pt: "panel" for pt in owner_tcp_set if pt}
+owner_udp = {pt: "panel" for pt in owner_udp_set if pt}
 for flag, dct in (("t", owner_tcp), ("u", owner_udp)):
     for l in sh(f"ss -H -{flag}lnp").splitlines():
         f = l.split()
