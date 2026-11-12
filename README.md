@@ -42,7 +42,6 @@
 روی سرور با دسترسی **root** اجرا کنید:
 
 ```bash
-sudo -i
 bash <(curl -Ls https://raw.githubusercontent.com/AyhanMansur/AyhanX-Direct/main/install.sh)
 ```
 
