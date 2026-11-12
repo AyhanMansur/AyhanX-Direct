@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  3x-ui Pro Configs + Proxy Scanner
+#  3x-ui Pro Configs + Proxy Scanner  —  VLESS / Trojan (3x-ui · Marzban · Pasarguard)
 #  Repo: https://github.com/AyhanMansur/AyhanX-Direct
 # =============================================================================
 set -euo pipefail
@@ -32,12 +32,6 @@ if ! command -v pipx >/dev/null 2>&1 && [ -n "$PKG" ]; then
     echo "[!] installing pipx via $PKG_NAME …"
     $PKG pipx >/dev/null 2>&1 || true
 fi
-if { [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; } \
-   && ! command -v xclip >/dev/null 2>&1 \
-   && command -v apt-get >/dev/null 2>&1; then
-    echo "[!] installing xclip via apt …"
-    apt-get install -y xclip >/dev/null 2>&1 || true
-fi
 
 REPO_RAW="https://raw.githubusercontent.com/pdnczone/3x-ui-pro-configs/main"
 USER_REPO="https://github.com/AyhanMansur/AyhanX-Direct"
@@ -45,7 +39,7 @@ TMPPY=$(mktemp /tmp/xui-pro.XXXXXX.py)
 trap 'rm -f "$TMPPY"' EXIT
 cat > "$TMPPY" <<'PYEOF'
 import argparse, base64, glob, ipaddress, json, os, re, secrets, shutil
-import socket, string, subprocess, sys, time, platform, uuid, urllib.parse, random
+import socket, string, subprocess, sys, time, platform, urllib.parse, random
 import concurrent.futures as cfut
 from ipaddress import ip_network
 
@@ -84,14 +78,16 @@ BANNER = r"""
           ░ ░                                            ░                          ░
 """
 USER_REPO  = "https://github.com/AyhanMansur/AyhanX-Direct"
-BRAND      = "🧩👾𝐀𝐲𝐡𝐚𝐧𝐗-𝐃𝐢𝐫𝐞𝐜𝐭-"
-PRO_TITLE  = f"{B}{C}3x-ui Pro Configs  ·  add-only installer{N}"
+BRAND      = "🧩👾AyhanX-Direct • "
+PRO_TITLE  = f"{B}{C}3x-ui Pro Configs  ·  CDN + PQ + REALITY installer{N}"
 SCAN_TITLE = f"{B}{C}Proxy Scanner  ·  range / domain → link builder{N}"
 
 p = argparse.ArgumentParser()
-for a in ("--domain","--cdn","--configs","--email","--token","--api-key","--clean","--ports","--scan-limit"):
+for a in ("--domain","--cdn","--configs","--email","--token","--api-key","--clean","--ports","--scan-limit",
+          "--panel","--panel-url","--panel-user","--panel-pass"):
     p.add_argument(a)
-for a in ("--no-bbr","--no-test","--yes","--dry-run","--scan","--install","--no-scan"):
+for a in ("--no-bbr","--no-test","--yes","--dry-run","--scan","--install","--no-scan",
+          "--no-reality-scan","--fresh-reality-scan"):
     p.add_argument(a, action="store_true")
 A = p.parse_args()
 TOKEN_IN = A.token or A.api_key or ""
@@ -108,9 +104,7 @@ def ask(q, default=""):
 def yes(q, default=True):
     return ask(q + (" (Y/n)" if default else " (y/N)"), "y" if default else "n").lower().startswith("y")
 
-# ═══════════════════════════════════════════════════════════════════════════
-#  SCANNER
-# ═══════════════════════════════════════════════════════════════════════════
+# ───────── scanner ─────────
 def _pipx_has(mod):
     try: return subprocess.run(["pipx","runpip",mod,"show",mod],
                                 capture_output=True, text=True, timeout=30).returncode == 0
@@ -165,7 +159,7 @@ def ensure_requests():
             if subprocess.run(cmd, capture_output=True, text=True, timeout=180).returncode == 0 \
                and try_import_after(): return True
         except Exception: pass
-    print(f"{R}  ✘{N} could not auto-install {CY}requests{N} — falling back to curl")
+    print(f"{R}  ✘{N} could not auto-install {CYAN}requests{N} — falling back to curl")
     return False
 
 def scan_host(host):
@@ -220,11 +214,8 @@ def write_clean_ips(items, filename="clean-ips.txt"):
 def parse_proxy_link(link):
     link = link.strip()
     if link.startswith('vless://'): return parse_vless(link)
-    if link.startswith('vmess://'): return parse_vmess(link)
     if link.startswith('trojan://'): return parse_trojan(link)
-    if link.startswith('ss://'): return parse_shadowsocks(link)
-    if link.startswith(('hysteria://','hysteria2://')): return parse_hysteria(link)
-    raise ValueError("Unsupported scheme.")
+    raise ValueError("Only vless and trojan templates are supported.")
 def parse_vless(link):
     rest = link[8:]; ui, rest = rest.split('@',1)
     pr = urllib.parse.urlparse('//'+rest); nl, q, fr = pr.netloc, pr.query, pr.fragment
@@ -232,13 +223,6 @@ def parse_vless(link):
     P = urllib.parse.parse_qs(q, keep_blank_values=True)
     for k,v in P.items(): P[k] = v[-1] if v else ''
     return {'scheme':'vless','userinfo':ui,'host':h,'port':pt,'params':P,'fragment':fr,'raw':None}
-def parse_vmess(link):
-    b64 = link[8:]; b64 += '=' * (-len(b64) % 4)
-    d = json.loads(base64.b64decode(b64).decode('utf-8'))
-    h, pt = d.get('add',''), d.get('port',443)
-    try: pt = int(pt)
-    except: pt = 443
-    return {'scheme':'vmess','userinfo':None,'host':h,'port':pt,'params':{},'fragment':'','raw':d}
 def parse_trojan(link):
     rest = link[9:]; ui, rest = rest.split('@',1)
     pr = urllib.parse.urlparse('//'+rest); nl, q, fr = pr.netloc, pr.query, pr.fragment
@@ -246,24 +230,6 @@ def parse_trojan(link):
     P = urllib.parse.parse_qs(q, keep_blank_values=True)
     for k,v in P.items(): P[k] = v[-1] if v else ''
     return {'scheme':'trojan','userinfo':ui,'host':h,'port':pt,'params':P,'fragment':fr,'raw':None}
-def parse_shadowsocks(link):
-    rest = link[5:]; fr = ''
-    if '#' in rest: rest, fr = rest.split('#',1)
-    if '@' in rest:
-        ui, hp = rest.split('@',1)
-        h, _, ps = hp.rsplit(':',1); pt = int(ps) if ps.isdigit() else 443
-    else:
-        b64 = rest; b64 += '=' * (-len(b64) % 4)
-        ui, hp = base64.b64decode(b64).decode('utf-8').split('@',1)
-        h, _, ps = hp.rsplit(':',1); pt = int(ps) if ps.isdigit() else 443
-    return {'scheme':'ss','userinfo':ui,'host':h,'port':pt,'params':{},'fragment':fr,'raw':None}
-def parse_hysteria(link):
-    se = link.find('://') + 3; rest = link[se:]
-    pr = urllib.parse.urlparse('//'+rest); nl, q, fr = pr.netloc, pr.query, pr.fragment
-    h, _, ps = nl.partition(':'); pt = int(ps) if ps.isdigit() else 443
-    P = urllib.parse.parse_qs(q, keep_blank_values=True)
-    for k,v in P.items(): P[k] = v[-1] if v else ''
-    return {'scheme':'hysteria','userinfo':None,'host':h,'port':pt,'params':P,'fragment':fr,'raw':None}
 
 def _qs(P): return '&'.join(f"{k}={urllib.parse.quote_plus(v)}" for k,v in P.items() if v)
 def build_vless(c,h):
@@ -271,26 +237,13 @@ def build_vless(c,h):
     if q: u += f"?{q}"
     if c['fragment']: u += f"#{c['fragment']}"
     return u
-def build_vmess(c,h):
-    d = c['raw'].copy(); d['add'] = h
-    return f"vmess://{base64.b64encode(json.dumps(d,separators=(',',':')).encode()).decode()}"
 def build_trojan(c,h):
     q = _qs(c['params']); u = f"trojan://{c['userinfo']}@{h}:{c['port']}"
     if q: u += f"?{q}"
     if c['fragment']: u += f"#{c['fragment']}"
     return u
-def build_shadowsocks(c,h):
-    u = f"ss://{c['userinfo']}@{h}:{c['port']}"
-    if c['fragment']: u += f"#{c['fragment']}"
-    return u
-def build_hysteria(c,h):
-    q = _qs(c['params']); u = f"hysteria://{h}:{c['port']}"
-    if q: u += f"?{q}"
-    if c['fragment']: u += f"#{c['fragment']}"
-    return u
 def build_proxy_link(c,h):
-    return {'vless':build_vless,'vmess':build_vmess,'trojan':build_trojan,
-            'ss':build_shadowsocks,'hysteria':build_hysteria}[c['scheme']](c,h)
+    return {'vless':build_vless,'trojan':build_trojan}[c['scheme']](c,h)
 
 def get_cached_list(url, cache_file):
     use_requests = ensure_requests()
@@ -341,7 +294,7 @@ def run_scanner(default_template=None):
     if default_template:
         template = ask(f"{YELLOW}➜ template (Enter = from install){ENDC}", default_template).strip()
     else:
-        template = ask(f"{YELLOW}➜ proxy link template (Enter = skip){ENDC}", "").strip()
+        template = ask(f"{YELLOW}➜ vless/trojan template (Enter = skip){ENDC}", "").strip()
     pc = None
     if template:
         try: pc = parse_proxy_link(template); print(f"{OKGREEN}✅ {pc['scheme']}{ENDC}")
@@ -398,119 +351,633 @@ def run_scanner(default_template=None):
         copy_to_clipboard("\n".join(gen) if gen else "\n".join(all_a))
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  MODE SELECTION
+#  PANEL ADAPTERS
 # ═══════════════════════════════════════════════════════════════════════════
-clear_screen()
+COMING_SOON = "🔮 coming soon"
 
+class PanelBase:
+    name = "abstract"
+    def __init__(self, base, token, resolve):
+        self.base = base.rstrip("/"); self.token = token or ""; self.resolve = resolve
+    def _http(self, path, body=None, method=None, timeout=20, form=None):
+        c = ["curl","-sk","-m",str(timeout)] + self.resolve
+        if self.token: c += ["-H", f"Authorization: Bearer {self.token}"]
+        if form is not None:
+            c += ["-X", (method or "POST"), "--data", urllib.parse.urlencode(form)]
+        elif body is not None:
+            c += ["-H","Content-Type: application/json","-X",(method or "POST"),"-d",json.dumps(body)]
+        elif method:
+            c += ["-X", method]
+        out = subprocess.run(c + [self.base + path], capture_output=True, text=True).stdout
+        try: return json.loads(out)
+        except Exception: return {"success": False, "raw": out[:300]}
+    def _code(self, path, method=None, timeout=4):
+        c = ["curl","-sk","-m",str(timeout),"-o","/dev/null","-w","%{http_code}"] + self.resolve
+        if self.token: c += ["-H", f"Authorization: Bearer {self.token}"]
+        if method: c += ["-X", method]
+        try:
+            return subprocess.run(c + [self.base + path], capture_output=True,
+                                  text=True, timeout=timeout + 5).stdout.strip()
+        except Exception:
+            return ""
+    def probe(self):           raise NotImplementedError
+    def list_inbounds(self):   raise NotImplementedError
+    def add_inbound(self, remark, port, protocol, settings, stream, sniffing): raise NotImplementedError
+    def del_inbound(self, iid): raise NotImplementedError
+    def add_client(self, email, subid, password, inbound_ids): raise NotImplementedError
+    def attach_client(self, email, inbound_ids): raise NotImplementedError
+    def detach_client(self, email, inbound_ids): raise NotImplementedError
+    def add_host(self, inbound_id, remark, address, extra, sort_order=0): raise NotImplementedError
+    def restart(self):         raise NotImplementedError
+    def xray_version(self):    raise NotImplementedError
+    def ports_owned(self):     return set(), set()
+    def sub_urls(self, subid): return (None, None)
+    def db_backup(self):       return None
+    def set_remark_template(self, tpl): return True
+    def clients_list(self):    return []
+    def supports(self, key):   return True
+
+class Panel3xui(PanelBase):
+    name = "3x-ui"
+    def probe(self):
+        r = self._http("/panel/api/inbounds/list")
+        if r.get("success") is True: return True
+        blob = json.dumps(r).lower()
+        if any(tok in blob for tok in ('"success":false', 'inbound', 'not authenticated',
+                                       'unauthorized', 'authorization', 'login')):
+            return True
+        s = json.dumps(self._http("/panel/api/server/status")).lower()
+        return "panelversion" in s or "xray" in s
+    def _status(self): return self._http("/panel/api/server/status").get("obj") or {}
+    def list_inbounds(self): return self._http("/panel/api/inbounds/list").get("obj") or []
+    def add_inbound(self, remark, port, protocol, settings, stream, sniffing):
+        r = self._http("/panel/api/inbounds/add",
+                       {"up":0,"down":0,"total":0,"remark":remark,"enable":True,"expiryTime":0,
+                        "listen":"","port":port,"protocol":protocol,"settings":settings,
+                        "streamSettings":stream,"sniffing":sniffing})
+        return (r.get("obj") or {}).get("id") if r.get("success") else None
+    def del_inbound(self, iid):
+        return self._http(f"/panel/api/inbounds/del/{iid}", method="POST").get("success", False)
+    def add_client(self, email, subid, password, inbound_ids):
+        cl = {"email":email,"subId":subid,"flow":"xtls-rprx-vision","password":password,
+              "totalGB":0,"expiryTime":0,"limitIp":0,"limitHwid":0,"enable":True,"tgId":0,
+              "comment":"3x-ui-pro-configs"}
+        return bool(self._http("/panel/api/clients/add", {"client":cl,"inboundIds":inbound_ids}).get("success"))
+    def attach_client(self, email, inbound_ids):
+        return self._http(f"/panel/api/clients/{email}/attach", {"inboundIds":inbound_ids}).get("success", False)
+    def detach_client(self, email, inbound_ids):
+        return self._http(f"/panel/api/clients/{email}/detach", {"inboundIds":inbound_ids}).get("success", False)
+    def add_host(self, inbound_id, remark, address, extra, sort_order=0):
+        body = {"inboundIds":[inbound_id],"remark":remark,"hosts":[address],"port":0,
+                "security":"same","sortOrder":sort_order}
+        body.update(extra or {})
+        return self._http("/panel/api/hosts/add", body).get("success", False)
+    def restart(self): self._http("/panel/api/server/restartXrayService", method="POST")
+    def xray_version(self):
+        return ((self._status().get("xray") or {}).get("version") or "?")
+    def clients_list(self): return self._http("/panel/api/clients/list").get("obj") or []
+    def ports_owned(self):
+        tcp, udp = set(), set()
+        for ib in self.list_inbounds():
+            st = ib.get("streamSettings")
+            st = json.loads(st) if isinstance(st,str) and st else (st or {})
+            if ib.get("protocol") in ("hysteria","wireguard","amneziawg") or st.get("network") in ("kcp","hysteria"):
+                udp.add(ib.get("port"))
+            else:
+                tcp.add(ib.get("port"))
+        s = self._http("/panel/api/setting/all", method="POST").get("obj") or {}
+        for k in ("subPort","webPort"):
+            if s.get(k): tcp.add(int(s[k]))
+        return tcp, udp
+    def sub_urls(self, subid):
+        s = self._http("/panel/api/setting/all", method="POST").get("obj") or {}
+        sp = s.get("subPort", 2096)
+        scheme = "https" if s.get("subCertFile") else "http"
+        host = s.get("subDomain") or (sh("curl -4 -s -m6 https://api.ipify.org") or "")
+        return (f"{scheme}://{host}:{sp}{s.get('subPath','/sub/')}{subid}",
+                f"{scheme}://{host}:{sp}{s.get('subJsonPath','/json/')}{subid}")
+    def set_remark_template(self, tpl):
+        s = self._http("/panel/api/setting/all", method="POST").get("obj") or {}
+        s["remarkTemplate"] = tpl
+        if not s.get("subJsonEnable"): s["subJsonEnable"] = True
+        return self._http("/panel/api/setting/update", s, method="POST").get("success", False)
+    def db_backup(self):
+        db = "/etc/x-ui/x-ui.db"
+        if os.path.exists(db):
+            dst = f"{db}.bak-pro-{int(time.time())}"
+            shutil.copy(db, dst); return dst
+        return None
+
+class PanelMarzban(PanelBase):
+    name = "Marzban"
+    def __init__(self, base, token, resolve):
+        super().__init__(base, token, resolve)
+        self.jwt = None
+    def login(self, user, pw):
+        # OAuth2 password flow: must be form-encoded, not JSON
+        r = self._http("/api/admin/token",
+                       form={"username":user,"password":pw,"grant_type":"password"})
+        tok = r.get("access_token") if isinstance(r, dict) else None
+        if tok:
+            self.jwt = tok; self.token = tok
+            return True
+        return False
+    def probe(self):
+        if self.jwt: return True
+        # Pasarguard (a Marzban fork) exposes /api/cores; Marzban does not
+        if self._code("/api/cores") in ("200","401","403"):
+            return False
+        r = self._http("/api/system", method="GET")
+        blob = json.dumps(r).lower()
+        if "detail" in blob and ("not authenticated" in blob or "forbidden" in blob or "unauthorized" in blob):
+            return True
+        if any(k in blob for k in ("version", "xray_version")):
+            return True
+        return False
+    def _system(self):
+        r = self._http("/api/system", method="GET")
+        return r if isinstance(r, dict) else {}
+    def list_inbounds(self):
+        r = self._http("/api/inbounds", method="GET")
+        if isinstance(r, list): return r
+        if isinstance(r, dict):
+            v = r.get("inbounds") or {}
+            return list(v.values()) if isinstance(v, dict) else (v or [])
+        return []
+    def add_inbound(self, remark, port, protocol, settings, stream, sniffing):
+        tag = (re.sub(r"[^A-Za-z0-9_-]+", "_", remark) or f"in_{port}")[:32]
+        body = {"remark":remark,"port":port,"protocol":protocol,
+                "settings":settings,"streamSettings":stream,"sniffing":sniffing,
+                "tag":tag}
+        r = self._http("/api/inbound", body, method="POST")
+        if r.get("success") is False or r.get("detail"):
+            return None
+        return tag
+    def del_inbound(self, iid):
+        r = self._http(f"/api/inbound/{iid}", method="DELETE")
+        return r.get("success", True) and r.get("detail") is None
+    def add_client(self, email, subid, password, inbound_ids):
+        proxies = {"vless": {}, "vmess": {}, "trojan": {}}
+        inbounds = {p: list(inbound_ids) for p in proxies}
+        body = {"username":email,"proxies":proxies,"inbounds":inbounds,
+                "expire":0,"data_limit":0,"status":"active","note":"3x-ui-pro-configs"}
+        r = self._http("/api/user", body, method="POST")
+        return (r.get("detail") is None and r.get("username") is not None)
+    def attach_client(self, email, inbound_ids):
+        r = self._http(f"/api/user/{email}", method="GET")
+        if not isinstance(r, dict) or "inbounds" not in r: return False
+        inb = r["inbounds"]
+        for k in list(inb.keys()):
+            for iid in inbound_ids:
+                if iid not in inb[k]: inb[k].append(iid)
+        r2 = self._http(f"/api/user/{email}", {"inbounds":inb}, method="PUT")
+        return r2.get("detail") is None
+    def detach_client(self, email, inbound_ids): return True
+    def add_host(self, inbound_id, remark, address, extra, sort_order=0):
+        body = {"remark":remark,"address":address,"port":0}
+        body.update(extra or {})
+        r = self._http(f"/api/inbound/{inbound_id}/hosts", body, method="POST")
+        return r.get("detail") is None
+    def restart(self): self._http("/api/system/restart", method="POST")
+    def xray_version(self): return self._system().get("xray_version") or "?"
+    def ports_owned(self):
+        tcp, udp = set(), set()
+        for ib in self.list_inbounds():
+            port = ib.get("port"); proto = (ib.get("protocol") or "").lower()
+            if not port: continue
+            if proto in ("hysteria","hysteria2","wireguard"): udp.add(int(port))
+            else: tcp.add(int(port))
+        return tcp, udp
+    def sub_urls(self, subid):
+        r = self._http(f"/api/user/{subid}", method="GET")
+        if isinstance(r, dict) and r.get("subscription_url"):
+            return (r["subscription_url"], None)
+        return (None, None)
+    def db_backup(self):
+        for d in ("/var/lib/marzban","/opt/marzban"):
+            if os.path.isdir(d):
+                for f in glob.glob(f"{d}/*.db"):
+                    dst = f"{f}.bak-pro-{int(time.time())}"
+                    try:
+                        shutil.copy(f, dst); return dst
+                    except Exception: pass
+        return None
+    def clients_list(self):
+        r = self._http("/api/users", method="GET")
+        if isinstance(r, dict) and "users" in r: return r["users"]
+        return r if isinstance(r, list) else []
+    def supports(self, key):
+        # Marzban's Xray template rejects FinalMask / PQ Sudoku
+        return key not in {"rvpq","rxpq","rgpq","twsp","twstp","trhv","trxp","trgp"}
+
+class PanelPasarguard(PanelBase):
+    """Pasarguard: JWT admin login (no API keys). Inbounds are plain Xray inbounds
+    inside the core config (/api/cores). Users get access through groups.
+    Hosts reference an inbound_tag."""
+    name  = "Pasarguard"
+    GROUP = "pro-configs"
+    def __init__(self, base, token, resolve):
+        super().__init__(base, token, resolve)
+        self.jwt = None; self.core_id = None; self.group_id = None; self._sub = None
+
+    # ---- helpers
+    @staticmethod
+    def _items(r, key):
+        if isinstance(r, list): return r
+        if isinstance(r, dict) and isinstance(r.get(key), list): return r[key]
+        return []
+    @staticmethod
+    def _ok(r, empty_ok=False):
+        if isinstance(r, list): return True
+        if not isinstance(r, dict) or "detail" in r: return False
+        if r.get("success") is False:
+            return bool(empty_ok and r.get("raw", "x") == "")
+        return True
+    def _system(self):
+        r = self._http("/api/system", method="GET")
+        return r if isinstance(r, dict) else {}
+
+    # ---- auth / detection
+    def login(self, user, pw):
+        r = self._http("/api/admin/token",
+                       form={"username": user, "password": pw, "grant_type": "password"})
+        tok = r.get("access_token") if isinstance(r, dict) else None
+        if tok:
+            self.jwt = self.token = tok; return True
+        return False
+    def authed(self): return self._code("/api/admin") == "200"
+    def probe(self):
+        if self.token: return self.authed()
+        return self._code("/api/cores") in ("401", "403")   # only Pasarguard has /api/cores
+
+    # ---- core config (inbounds)
+    def _core(self):
+        cores = self._items(self._http("/api/cores", method="GET"), "cores")
+        if not cores: return None
+        c = next((x for x in cores if "xray" in str(x.get("type", "xray")).lower()), cores[0])
+        self.core_id = c.get("id")
+        full = self._http(f"/api/core/{self.core_id}", method="GET")
+        if isinstance(full, dict) and full.get("config"): c = full
+        cfg = c.get("config")
+        if isinstance(cfg, str):
+            try: cfg = json.loads(cfg)
+            except Exception: return None
+        if not isinstance(cfg, dict): return None
+        c["config"] = cfg
+        return c
+    def _save_core(self, core, cfg):
+        body = {"name": core.get("name", "Xray"), "config": cfg,
+                "exclude_inbound_tags": core.get("exclude_inbound_tags") or [],
+                "fallbacks_inbound_tags": core.get("fallbacks_inbound_tags") or []}
+        r = self._http(f"/api/core/{self.core_id}?restart_nodes=true", body,
+                       method="PUT", timeout=60)
+        if not self._ok(r):
+            warn(f"Pasarguard core update rejected: {json.dumps(r)[:240]}")
+            return False
+        return True
+    @staticmethod
+    def _native(stream):
+        """3x-ui stream JSON -> plain Xray streamSettings (strip panel-only keys)."""
+        s = json.loads(json.dumps(stream))
+        s.pop("externalProxy", None)
+        (s.get("realitySettings") or {}).pop("settings", None)
+        t = s.get("tlsSettings")
+        if t:
+            t.pop("settings", None)
+            if not t.get("cipherSuites"): t.pop("cipherSuites", None)
+        return s
+
+    def list_inbounds(self):
+        c = self._core()
+        out = []
+        for ib in ((c or {}).get("config") or {}).get("inbounds", []) or []:
+            out.append({"tag": ib.get("tag"), "port": ib.get("port"),
+                        "protocol": ib.get("protocol"),
+                        "streamSettings": ib.get("streamSettings") or {}})
+        return out
+    def ports_owned(self):
+        tcp, udp = set(), set()
+        for ib in self.list_inbounds():
+            try: port = int(ib["port"])
+            except Exception: continue
+            net = (ib.get("streamSettings") or {}).get("network")
+            if (ib.get("protocol") or "") in ("hysteria","hysteria2","wireguard") or net in ("kcp","hysteria"):
+                udp.add(port)
+            else: tcp.add(port)
+        return tcp, udp
+    def add_inbound(self, remark, port, protocol, settings, stream, sniffing):
+        core = self._core()
+        if not core:
+            warn("Pasarguard: could not read the core config"); return None
+        cfg = core["config"]; ibs = cfg.setdefault("inbounds", [])
+        tag = f"pro-{protocol}-{port}"
+        if any(i.get("tag") == tag for i in ibs): tag += "-" + secrets.token_hex(2)
+        ibs.append({"tag": tag, "port": port, "protocol": protocol, "settings": settings,
+                    "streamSettings": self._native(stream), "sniffing": sniffing})
+        if not self._save_core(core, cfg): return None
+        if not self._group_tags(add=tag):
+            self.del_inbound(tag); return None
+        return tag
+    def del_inbound(self, tag):
+        core = self._core()
+        if not core: return False
+        cfg = core["config"]
+        cfg["inbounds"] = [i for i in cfg.get("inbounds", []) if i.get("tag") != tag]
+        ok = self._save_core(core, cfg)
+        self._group_tags(remove=tag)
+        return ok
+
+    # ---- group / user
+    def _group(self, first_tag=None):
+        if self.group_id: return self.group_id
+        for g in self._items(self._http("/api/groups", method="GET"), "groups"):
+            if g.get("name") == self.GROUP:
+                self.group_id = g.get("id"); return self.group_id
+        if not first_tag:
+            return None          # panel refuses groups with zero inbounds
+        r = self._http("/api/group", {"name": self.GROUP, "inbound_tags": [first_tag]}, method="POST")
+        if self._ok(r) and isinstance(r, dict): self.group_id = r.get("id")
+        else: warn(f"Pasarguard group create: {json.dumps(r)[:200]}")
+        return self.group_id
+    def _group_tags(self, add=None, remove=None):
+        gid = self._group(first_tag=add)
+        if not gid: return False
+        g = self._http(f"/api/group/{gid}", method="GET")
+        tags = [t for t in (g.get("inbound_tags") or []) if t != remove] if isinstance(g, dict) else []
+        if add and add not in tags: tags.append(add)
+        if not tags: return True  # panel needs >=1 inbound; leave the group as it is
+        r = self._http(f"/api/group/{gid}", {"name": self.GROUP, "inbound_tags": tags}, method="PUT")
+        if not self._ok(r):
+            warn(f"Pasarguard group update: {json.dumps(r)[:200]}")
+            return False
+        return True
+    def add_client(self, email, subid, password, inbound_ids):
+        gid = self._group()
+        if not gid: return False
+        body = {"username": email, "status": "active", "group_ids": [gid],
+                "note": "3x-ui-pro-configs",
+                "proxy_settings": {"trojan": {"password": password},
+                                   "vless": {"flow": "xtls-rprx-vision"}}}
+        r = self._http("/api/user", body, method="POST")
+        if self._ok(r) and isinstance(r, dict) and r.get("username"):
+            self._sub = r.get("subscription_url"); return True
+        warn(f"Pasarguard user create: {json.dumps(r)[:200]}")
+        return False
+    def attach_client(self, email, inbound_ids): return True   # access comes from the group
+    def detach_client(self, email, inbound_ids): return True
+    def clients_list(self):
+        return self._items(self._http("/api/users?limit=1000", method="GET"), "users")
+
+    # ---- hosts
+    def add_host(self, inbound_id, remark, address, extra, sort_order=0):
+        extra = extra or {}
+        body = {"remark": remark, "address": [address], "inbound_tag": inbound_id,
+                "priority": sort_order + 1, "status": ["active"], "security": "inbound_default"}
+        sni = extra.get("sni")
+        if sni: body["sni"] = [sni]
+        if extra.get("hostHeader"): body["host"] = [extra["hostHeader"]]
+        if extra.get("port"): body["port"] = int(extra["port"])
+        cdn = globals().get("CDN")
+        if sni and cdn and sni == cdn:           # CDN hosts: client speaks TLS to Cloudflare
+            body["security"] = "tls"; body["fingerprint"] = "chrome"
+        if extra.get("finalMask"):
+            try:
+                st = json.loads(extra["finalMask"])["tcp"][0]["settings"]
+                body["fragment_settings"] = {"xray": {"packets": st.get("packets", "tlshello"),
+                                                      "length": st["lengths"][0],
+                                                      "interval": st["delays"][0]}}
+            except Exception: pass
+        r = {}
+        for path in ("/api/host", "/api/hosts"):
+            r = self._http(path, body, method="POST")
+            if self._ok(r): return True
+            if not any(k in json.dumps(r).lower() for k in ("not found", "not allowed")): break
+        warn(f"Pasarguard host: {json.dumps(r)[:200]}")
+        return False
+
+    # ---- misc
+    def restart(self):
+        # core PUT already restarts; this is best-effort only
+        self._http("/api/core/restart", method="POST")
+    def xray_version(self):
+        v = self._system().get("xray_version")
+        if v: return v
+        for b in ["/var/lib/pasarguard/xray-core/xray", "/usr/local/bin/xray", "/usr/bin/xray"]:
+            if os.access(b, os.X_OK):
+                m = re.search(r"Xray (\d+[\d.]*)", sh(f"'{b}' version"))
+                if m: return m.group(1)
+        return "?"
+    def sub_urls(self, subid):                      # subid == username here
+        u = self._sub
+        if not u:
+            r = self._http(f"/api/user/{subid}", method="GET")
+            u = r.get("subscription_url") if isinstance(r, dict) else None
+        if u and u.startswith("/"): u = self.base + u
+        return (u, None)
+    def db_backup(self):
+        # we mutate the core config, so that is what we back up
+        c = self._core()
+        if not c: return None
+        dst = f"pasarguard-core-{self.core_id}.bak-pro-{int(time.time())}.json"
+        try:
+            json.dump(c, open(dst, "w"), indent=2); return os.path.abspath(dst)
+        except Exception: return None
+    def stage_cert(self, domain, cert, key):
+        # the panel usually runs in Docker; /var/lib/pasarguard is mounted at the same path
+        base = "/var/lib/pasarguard"
+        if not os.path.isdir(base): return cert, key
+        d = f"{base}/certs/{domain}"; os.makedirs(d, exist_ok=True)
+        shutil.copy(cert, f"{d}/fullchain.pem"); shutil.copy(key, f"{d}/privkey.pem")
+        os.chmod(f"{d}/privkey.pem", 0o600)
+        info(f"cert copied to {d} (re-copy after renewals)")
+        return f"{d}/fullchain.pem", f"{d}/privkey.pem"
+    def supports(self, key): return True
+
+def _detect_panel(force):
+    cands = []
+    if force == "3xui":       cands = [Panel3xui]
+    elif force == "marzban":  cands = [PanelMarzban]
+    elif force == "pasarguard": cands = [PanelPasarguard]
+    else:                     cands = [Panel3xui, PanelPasarguard, PanelMarzban]
+
+    candidates = []
+    if A.panel_url:
+        candidates.append(A.panel_url.rstrip("/"))
+    else:
+        env = {}
+        for p_env in ("/etc/x-ui/install-result.env", "/etc/3x-ui/install-result.env"):
+            if os.path.exists(p_env):
+                try:
+                    for l in open(p_env):
+                        if "=" in l:
+                            k, v = l.strip().split("=", 1); env[k] = v
+                except Exception: pass
+                break
+        xp = env.get("XUI_PANEL_PORT")
+        xb = env.get("XUI_WEB_BASE_PATH") or ""
+        if not xp:
+            raw = re.sub(r"\x1b\[[0-9;]*m", "", sh("x-ui settings 2>/dev/null"))
+            xp = (re.search(r"port:\s*(\d+)", raw) or [None, None])[1]
+            xb = (re.search(r"webBasePath:\s*(\S+)", raw) or [None, xb])[1] or xb
+        base_path = "/" + xb.strip("/") if xb and xb.strip("/") else ""
+        if xp:
+            candidates.append(f"http://127.0.0.1:{xp}{base_path}")
+            if base_path: candidates.append(f"http://127.0.0.1:{xp}")
+        if force in ("marzban","pasarguard"):
+            candidates.insert(0, "http://127.0.0.1:8000")
+        for pt in (2053, 2083, 2087, 2096, 8000, 8080, 8443, 9000, 3000, 5000, 1800, 1801):
+            candidates.append(f"http://127.0.0.1:{pt}")
+
+    # Pasarguard / Marzban: read the panel's own .env for the real port + TLS mode
+    if force in ("marzban", "pasarguard", "auto") and not A.panel_url:
+        for envf in ("/opt/pasarguard/.env", "/opt/marzban/.env"):
+            if os.path.exists(envf):
+                try:
+                    e = dict(l.strip().split("=", 1) for l in open(envf)
+                             if "=" in l and not l.lstrip().startswith("#"))
+                    pt  = (e.get("UVICORN_PORT") or "8000").strip("\"' ")
+                    sch = "https" if (e.get("UVICORN_SSL_CERTFILE") or "").strip("\"' ") else "http"
+                    candidates.insert(0, f"{sch}://127.0.0.1:{pt}")
+                except Exception: pass
+
+    seen, ordered = set(), []
+    for u in candidates:
+        if u not in seen: seen.add(u); ordered.append(u)
+
+    listening = set()
+    for l in sh("ss -H -tlnp").splitlines():
+        m = re.search(r":(\d+)\s", l) or re.search(r":(\d+)$", l)
+        if m:
+            try: listening.add(int(m.group(1)))
+            except: pass
+    if listening:
+        info(f"listening TCP ports: {sorted(listening)[:25]}")
+
+    token = A.token or A.api_key or ""
+    for cls in cands:
+        for u in ordered:
+            variants = [u] + ([u.replace("http://", "https://", 1)] if (cls is not Panel3xui and u.startswith("http://")) else [])
+            for uu in variants:
+                pu = urllib.parse.urlparse(uu)
+                if pu.port and pu.hostname in ("127.0.0.1", "localhost") and pu.port not in listening:
+                    continue
+                try:
+                    pn = cls(uu, token, [])
+                    if cls in (PanelMarzban, PanelPasarguard) and not token and A.panel_user and A.panel_pass:
+                        pn.login(A.panel_user, A.panel_pass)
+                    if pn.probe():
+                        return pn
+                except Exception:
+                    continue
+    return None
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  MODE + PANEL SUB-MENU
+# ═══════════════════════════════════════════════════════════════════════════
 print(f"{B}{C}{BANNER}{N}")
 print(f"{D}        {PRO_TITLE}  ·  {SCAN_TITLE}{N}")
 print(f"{D}        {USER_REPO}{N}\n")
 
 if A.scan:
-    run_scanner(); sys.exit(0)
+    clear_screen(); run_scanner(); sys.exit(0)
 
 MODE_CHOICE = "install"
 if INTERACTIVE and not A.install:
     print(f"{B}What do you want to do?{N}")
-    print(f"  {B}1{N}) {G}Install 3x-ui Pro Configs{N}")
+    print(f"  {B}1{N}) {G}Install Pro Configs{N}   {D}(3x-ui / Marzban / Pasarguard){N}")
     print(f"  {B}2{N}) {C}Run the Proxy Scanner only{N}")
     print(f"  {B}3{N}) {Y}Both{N}")
     mc = ask("Choice", "1").strip().lower()
     MODE_CHOICE = {"2":"scan","3":"both","1":"install"}.get(mc,"install")
 if MODE_CHOICE == "scan":
-    clear_screen()
-    run_scanner(); sys.exit(0)
+    clear_screen(); run_scanner(); sys.exit(0)
+
+PANEL_FORCE = (A.panel or "").lower()
+if PANEL_FORCE in ("3xui","3x-ui"):   PANEL_FORCE = "3xui"
+elif PANEL_FORCE == "marzban":        PANEL_FORCE = "marzban"
+elif PANEL_FORCE == "pasarguard":     PANEL_FORCE = "pasarguard"
+else:                                 PANEL_FORCE = ""
+
+if not PANEL_FORCE and INTERACTIVE and not A.install:
+    print(f"\n{B}Which panel?{N}")
+    print(f"  {B}1{N}) {G}3x-ui{N}         {D}(full catalog — PQ / REALITY included){N}")
+    print(f"  {B}2{N}) {C}Marzban{N}       {D}(PQ / REALITY marked 'coming soon'){N}")
+    print(f"  {B}3{N}) {Y}Pasarguard{N}    {D}(full catalog — admin login, edits the Xray core config){N}")
+    print(f"  {B}4{N}) {Y}Auto-detect{N}   {D}(3x-ui → Pasarguard → Marzban){N}")
+    pc_choice = ask("Choice", "1").strip().lower()
+    PANEL_FORCE = {"1":"3xui","2":"marzban","3":"pasarguard","4":"auto"}.get(pc_choice, "3xui")
+if not PANEL_FORCE: PANEL_FORCE = "auto"
 
 # =========================================================================== panel
 head("Panel")
-env = {}
-if os.path.exists("/etc/x-ui/install-result.env"):
-    for l in open("/etc/x-ui/install-result.env"):
-        if "=" in l:
-            k, v = l.strip().split("=", 1); env[k] = v
-raw = re.sub(r"\x1b\[[0-9;]*m", "", sh("x-ui settings 2>/dev/null"))
-pport = env.get("XUI_PANEL_PORT") or (re.search(r"port:\s*(\d+)", raw) or [None, None])[1]
-base = env.get("XUI_WEB_BASE_PATH") or (re.search(r"webBasePath:\s*(\S+)", raw) or [None, ""])[1]
-base = "/" + base.strip("/") if base and base.strip("/") else ""
-access = env.get("XUI_ACCESS_URL") or (re.search(r"Access URL:\s*(\S+)", raw) or [None, ""])[1]
-if not pport:
-    die("3x-ui was not found on this server. Install 3x-ui v3.x first (or run with --scan).")
-if access.startswith(("http://", "https://")):
-    scheme = access.split(":", 1)[0]
+PANEL = _detect_panel(PANEL_FORCE)
+if not PANEL:
+    die("No supported panel found. "
+        "Pass --panel 3xui|marzban|pasarguard --panel-url http://host:port [--token …] "
+        "[--panel-user … --panel-pass …]")
+
+if PANEL.name == "3x-ui":
+    if not PANEL.token:
+        if not INTERACTIVE: die("3x-ui needs --token / --api-key.")
+        t = ask("3x-ui API token (Settings > API Tokens)")
+        if t: PANEL.token = t
+        else: die("no token — aborting")
+    if not PANEL._http("/panel/api/inbounds/list").get("success"):
+        die("Token rejected by 3x-ui API.")
+elif PANEL.name == "Marzban":
+    if not getattr(PANEL, "jwt", None) and not PANEL.token:
+        if not INTERACTIVE and not (A.panel_user and A.panel_pass):
+            die("Marzban needs --panel-user / --panel-pass.")
+        u = A.panel_user or ask("Marzban username", "admin")
+        pw = A.panel_pass or ask("Marzban password")
+        if not PANEL.login(u, pw): die("Marzban login failed.")
+    if not PANEL.probe():
+        die("Marzban login did not produce a valid session.")
+elif PANEL.name == "Pasarguard":
+    if not PANEL.token:
+        if not INTERACTIVE and not (A.panel_user and A.panel_pass):
+            die("Pasarguard needs --panel-user / --panel-pass (or --token with an existing JWT).")
+        u  = A.panel_user or ask("Pasarguard admin username", "admin")
+        pw = A.panel_pass or ask("Pasarguard admin password")
+        if not PANEL.login(u, pw): die("Pasarguard login failed.")
+    if not PANEL.authed(): die("Pasarguard session not accepted.")
+
+XVER = PANEL.xray_version()
+info(f"panel {PANEL.name} at {PANEL.base} · xray {XVER}")
+if PANEL.name == "Marzban":
+    warn("Marzban: PQ Sudoku and REALITY PQ configs are marked 'coming soon'")
+if PANEL.name == "Pasarguard" and XVER != "?" and not XVER.startswith("26"):
+    warn(f"Pasarguard Xray {XVER}: PQ / finalmask configs need a recent Xray-core (26+)")
+
+_xray_candidates = (
+    glob.glob("/usr/local/x-ui/bin/xray-linux-*")
+    + glob.glob("/usr/local/x-ui/bin/xray")
+    + glob.glob("/var/lib/pasarguard/xray-core/xray")
+    + glob.glob("/usr/local/bin/xray")
+    + glob.glob("/usr/bin/xray")
+)
+XRAY = next((p for p in _xray_candidates if p and os.access(p, os.X_OK)), "")
+if not XRAY:
+    warn("xray binary not found — REALITY / PQ configs will fail")
 else:
-    scheme = "https" if re.search(r"Panel is secure with SSL", raw) else "http"
-phost = re.sub(r"^https?://\[?([^/\]]+?)\]?(:\d+)?/.*$", r"\1", access) if access else "127.0.0.1"
-PANEL = f"{scheme}://{phost}:{pport}{base}"
-RESOLVE = ["--resolve", f"{phost}:{pport}:127.0.0.1"] if re.search(r"[a-zA-Z]", phost) else []
-if not RESOLVE:
-    PANEL = f"{scheme}://127.0.0.1:{pport}{base}"
-TOKEN = A.token or env.get("XUI_API_TOKEN", "")
-COOKIE = "/tmp/.xui-pro.cookie"
-TEMP_TOKEN_ID = None
+    info(f"xray binary: {XRAY}")
+    _test = sh(f"'{XRAY}' x25519 2>/dev/null")
+    if "PrivateKey" not in _test and "Private key" not in _test:
+        warn("xray x25519 returned nothing — REALITY will be skipped")
 
-def api(path, body=None, post=False, timeout=40):
-    c = ["curl", "-sk", "-m", str(timeout)] + RESOLVE + ["-H", f"Authorization: Bearer {TOKEN}"]
-    if body is not None:
-        c += ["-H", "Content-Type: application/json", "-X", "POST", "-d", json.dumps(body)]
-    elif post:
-        c += ["-X", "POST"]
-    out = subprocess.run(c + [PANEL + path], capture_output=True, text=True).stdout
-    try: return json.loads(out)
-    except Exception: return {"success": False, "msg": out[:200]}
-
-def login_and_mint_token(u, pw, otp=""):
-    global TOKEN, TEMP_TOKEN_ID
-    bc = ["curl", "-sk", "-m", "20"] + RESOLVE + ["-c", COOKIE, "-b", COOKIE]
-    def csrf():
-        try: return json.loads(subprocess.run(bc + [PANEL + "/csrf-token"], capture_output=True, text=True).stdout).get("obj", "")
-        except Exception: return ""
-    body = {"username": u, "password": pw}
-    if otp: body["twoFactorCode"] = otp
-    out = subprocess.run(bc + ["-H", f"X-CSRF-Token: {csrf()}", "-H", "Content-Type: application/json", "-X", "POST",
-                               "-d", json.dumps(body), PANEL + "/login"], capture_output=True, text=True).stdout
-    if '"success":true' not in out.replace(" ", ""):
-        die("Panel login failed:", out[:150])
-    out = subprocess.run(bc + ["-H", f"X-CSRF-Token: {csrf()}", "-H", "Content-Type: application/json", "-X", "POST",
-                               "-d", json.dumps({"name": f"pro-configs-{int(time.time())}"}),
-                               PANEL + "/panel/api/setting/apiTokens/create"], capture_output=True, text=True).stdout
-    try:
-        o = json.loads(out)["obj"]; TOKEN, TEMP_TOKEN_ID = o["token"], o["id"]
-    except Exception:
-        die("Logged in, but could not create an API token:", out[:150])
-    try: os.remove(COOKIE)
-    except Exception: pass
-
-if not TOKEN or not api("/panel/api/inbounds/list").get("success"):
-    if not INTERACTIVE:
-        die("No working API token. Pass --token (panel > Settings > API Tokens).")
-    print(f"  {D}Panel found at {PANEL}{N}")
-    t = ask("Panel API token (Settings > API Tokens) — or press Enter to log in with username/password")
-    if t: TOKEN = t
-    else: login_and_mint_token(ask("  Panel username"), ask("  Panel password"), ask("  2FA code (Enter if none)"))
-if not api("/panel/api/inbounds/list").get("success"):
-    die("Cannot talk to the panel API at", PANEL)
-for need in ("/panel/api/clients/list", "/panel/api/hosts/list"):
-    if not api(need).get("success"):
-        die("Your 3x-ui is too old (no Clients/Hosts pages). Update 3x-ui to v3.x and run again.")
-status = api("/panel/api/server/status").get("obj") or {}
-XVER = (status.get("xray") or {}).get("version", "?")
-info(f"panel {status.get('panelVersion', '?')} · xray {XVER} · {PANEL}")
-if not XVER.startswith("26"):
-    warn("Xray-core is not 26.x — FinalMask, Hysteria2 and Sudoku need it (Panel > Xray > update).")
-XRAY = (glob.glob("/usr/local/x-ui/bin/xray-linux-*") or [""])[0]
 DB = "/etc/x-ui/x-ui.db"
-settings = api("/panel/api/setting/all", post=True).get("obj") or {}
+settings = {} if PANEL.name != "3x-ui" else (PANEL._http("/panel/api/setting/all", method="POST").get("obj") or {})
+inbs = PANEL.list_inbounds()
 
 # =========================================================================== server facts
-pub = status.get("publicIP") if isinstance(status.get("publicIP"), dict) else {}
-PUB4 = (pub or {}).get("ipv4") or sh("curl -4 -s -m6 https://api.ipify.org")
+PUB4 = sh("curl -4 -s -m6 https://api.ipify.org")
 PUB6 = ""
 for l in sh("ip -6 addr show scope global").splitlines():
     m = re.search(r"inet6 ([0-9a-f:]+)/\d+ .*scope global", l)
-    if m and "temporary" not in l and "deprecated" not in l and not m.group(1).startswith(("fd", "fc")):
+    if m and "temporary" not in l and "deprecated" not in l and not m.group(1).startswith(("fd","fc")):
         PUB6 = m.group(1); break
-if PUB6 and not sh("curl -6 -s -m6 https://api64.ipify.org"):
-    PUB6 = ""
+if PUB6 and not sh("curl -6 -s -m6 https://api64.ipify.org"): PUB6 = ""
+
 CF_NETS = [ipaddress.ip_network(n) for n in (
     "173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 "
     "188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 "
@@ -522,15 +989,14 @@ def ips_of(d):
 is_cf = lambda ip: any(ipaddress.ip_address(ip) in n for n in CF_NETS if ipaddress.ip_address(ip).version == n.version)
 
 def find_cert(d):
-    cands = [(settings.get("webCertFile"), settings.get("webKeyFile")), (settings.get("subCertFile"), settings.get("subKeyFile")),
-             (f"/root/cert/{d}/fullchain.pem", f"/root/cert/{d}/privkey.pem"),
+    cands = [(f"/root/cert/{d}/fullchain.pem", f"/root/cert/{d}/privkey.pem"),
              (f"/root/.acme.sh/{d}_ecc/fullchain.cer", f"/root/.acme.sh/{d}_ecc/{d}.key"),
              (f"/root/.acme.sh/{d}/fullchain.cer", f"/root/.acme.sh/{d}/{d}.key"),
              (f"/etc/letsencrypt/live/{d}/fullchain.pem", f"/etc/letsencrypt/live/{d}/privkey.pem")]
     for c, k in cands:
-        if c and k and os.path.exists(c) and os.path.exists(k):
+        if os.path.exists(c) and os.path.exists(k):
             names = sh(f"openssl x509 -in '{c}' -noout -ext subjectAltName 2>/dev/null")
-            if f"DNS:{d}" in names or f"DNS:*.{d.split('.', 1)[-1]}" in names:
+            if f"DNS:{d}" in names or f"DNS:*.{d.split('.',1)[-1]}" in names:
                 if sh(f"openssl x509 -in '{c}' -noout -checkend 86400 >/dev/null && echo ok") == "ok":
                     return c, k
     return None, None
@@ -552,18 +1018,14 @@ def issue_cert(d):
 
 # =========================================================================== 1. domain
 head("1/4  Your domain (direct, Cloudflare grey cloud)")
-print(f"  {D}Used for TLS / Hysteria2. Must point straight to this server ({PUB4}).{N}")
-guess = A.domain or settings.get("webDomain") or settings.get("subDomain") or (phost if re.search(r"[a-z]", phost) else "")
-if not guess:
-    for d in glob.glob("/root/cert/*/fullchain.pem"):
-        guess = d.split("/")[3]; break
-DOMAIN = (A.domain if A.domain is not None else ask("Domain (Enter = none, only REALITY)", guess)).strip().lower()
+print(f"  {D}Used for TLS/CDN configs. Must point straight to this server ({PUB4}).{N}")
+DOMAIN = (A.domain if A.domain is not None else ask("Domain (Enter = none, REALITY + plain only)", "")).strip().lower()
 CERT = KEY = None
 if DOMAIN:
     ips = ips_of(DOMAIN)
     if not ips: warn(f"{DOMAIN} does not resolve."); DOMAIN = ""
     elif any(is_cf(i) for i in ips):
-        warn(f"{DOMAIN} is orange-clouded — must be grey."); DOMAIN = ""
+        warn(f"{DOMAIN} orange-clouded — must be grey."); DOMAIN = ""
     else:
         if PUB4 not in ips and (not PUB6 or PUB6 not in ips):
             warn(f"{DOMAIN} → {', '.join(ips)}, not to this server ({PUB4}).")
@@ -571,7 +1033,9 @@ if DOMAIN:
         if CERT: info(f"cert: {CERT}")
         elif yes(f"No cert for {DOMAIN}. Issue one?", True):
             CERT, KEY = issue_cert(DOMAIN)
-        if not CERT: warn("No cert — TLS/CDN/Hysteria2 skipped.")
+        if not CERT: warn("No cert — TLS/CDN configs skipped.")
+if CERT and PANEL.name == "Pasarguard":
+    CERT, KEY = PANEL.stage_cert(DOMAIN, CERT, KEY)
 ADDR = DOMAIN or PUB4
 
 # =========================================================================== 2. CDN
@@ -587,29 +1051,118 @@ if CERT:
 
 # =========================================================================== 3. configs
 CATALOG = [
-    ("rv",  f"{BRAND}⚡𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐕𝐢𝐬𝐢𝐨𝐧", None, "Reality Vision — main config"),
-    ("rx",  f"{BRAND}🌀𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐗𝐇𝐓𝐓𝐏", None, "Reality XHTTP"),
-    ("rg",  f"{BRAND}🔷𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐠𝐑𝐏𝐂", None, "Reality gRPC"),
-    ("tv",  f"{BRAND}🔐𝐓𝐋𝐒-𝐕𝐢𝐬𝐢𝐨𝐧", "tls", "TLS Vision + Fragment / IPv6"),
-    ("tx",  f"{BRAND}🛰𝐓𝐋𝐒-𝐗𝐇𝐓𝐓𝐏", "tls", "TLS XHTTP direct + CDN"),
-    ("ws",  f"{BRAND}🌐𝐂𝐃𝐍-𝐖𝐒", "cdn", "Cloudflare WebSocket + clean IPs (VLESS)"),
-    ("hu",  f"{BRAND}🔗𝐂𝐃𝐍-𝐇𝐓𝐓𝐏𝐔𝐩𝐠𝐫𝐚𝐝𝐞", "cdn", "Cloudflare HTTPUpgrade (VLESS)"),
-    ("th",  f"{BRAND}🛡️𝐓𝐫𝐨𝐣𝐚𝐧-𝐇𝐔", "tls", "Trojan + TLS + HTTPUpgrade"),
-    # ── NEW CDN Trojan variants ──────────────────────────────────────────
-    ("tcx", f"{BRAND}🛡️𝐓𝐫𝐨𝐣𝐚𝐧-𝐂𝐃𝐍-𝐗𝐇𝐓𝐓𝐏", "cdn", "Trojan + TLS + XHTTP over CDN"),
-    ("tcw", f"{BRAND}🛡️𝐓𝐫𝐨𝐣𝐚𝐧-𝐂𝐃𝐍-𝐖𝐒",   "cdn", "Trojan + TLS + WS over CDN"),
-    ("tch", f"{BRAND}🛡️𝐓𝐫𝐨𝐣𝐚𝐧-𝐂𝐃𝐍-𝐇𝐔",   "cdn", "Trojan + TLS + HTTPUpgrade over CDN"),
-    ("hy",  f"{BRAND}🚄𝐇𝐲𝐬𝐭𝐞𝐫𝐢𝐚𝟐", "tls", "Hysteria2 + Salamander"),
-    ("pq",  f"{BRAND}🧬𝐏𝐐-𝐒𝐮𝐝𝐨𝐤𝐮", None, "PQ Sudoku VLESS (Xray 26)"),
-    ("tpq", f"{BRAND}🧬𝐓𝐫𝐨𝐣𝐚𝐧-𝐏𝐐", None, "Trojan + PQ Sudoku (Xray 26)"),
-    ("ss",  f"{BRAND}🛟𝐒𝐡𝐚𝐝𝐨𝐰𝐬𝐨𝐜𝐤𝐬-𝟐𝟎𝟐𝟐", None, "Shadowsocks-2022"),
+    ("tch",   f"{BRAND}👾Trojan • HU • CDN", "cdn", "Trojan + HTTPUpgrade (no TLS), over CDN"),
+    ("tcht",  f"{BRAND}👾Trojan • HU • CDN • TLS", "cdn", "Trojan + HTTPUpgrade + TLS, over CDN"),
+    ("tws",   f"{BRAND}👾Trojan • WS", "tls", "Trojan + WS"),
+    ("twsp",  f"{BRAND}🧬Trojan • WS • PQ", None, "Trojan + WS + PQ Sudoku"),
+    ("twst",  f"{BRAND}👾Trojan • WS • TLS", "tls", "Trojan + WS + TLS"),
+    ("twstp", f"{BRAND}🧬Trojan • WS • TLS • PQ", "tls", "Trojan + WS + TLS + PQ Sudoku"),
+    ("thu",   f"{BRAND}👾Trojan • HU • Plain", None, "Trojan + HTTPUpgrade (plain TCP)"),
+    ("trhv",  f"{BRAND}👾Trojan • REALITY • HU", None, "Trojan + REALITY + HTTPUpgrade"),
+    ("trxp",  f"{BRAND}👾Trojan • REALITY • XH", None, "Trojan + REALITY + XHTTP"),
+    ("trgp",  f"{BRAND}👾Trojan • REALITY • gRPC", None, "Trojan + REALITY + gRPC"),
+    ("rvpq",  f"{BRAND}🧬Reality • Vision • PQ", None, "VLESS + REALITY TCP + PQ Sudoku"),
+    ("rxpq",  f"{BRAND}🧬Reality • XHTTP • PQ", None, "VLESS + REALITY XHTTP + PQ Sudoku"),
+    ("rgpq",  f"{BRAND}🧬Reality • gRPC • PQ", None, "VLESS + REALITY gRPC + PQ Sudoku"),
 ]
 avail = [c for c in CATALOG if c[2] is None or (c[2] == "tls" and CERT) or (c[2] == "cdn" and CDN)]
+
 head("3/4  Which configs to add")
 for n, (k, name, _, desc) in enumerate(avail, 1):
-    print(f"  {B}{n:2d}{N}) {name:52s} {D}{desc}{N}")
+    tag = "" if PANEL.supports(k) else f" {Y}{COMING_SOON}{N}"
+    print(f"  {B}{n:2d}{N}) {name:52s} {D}{desc}{N}{tag}")
 skipped = [c[1] for c in CATALOG if c not in avail]
 if skipped: print(f"  {D}not available: {', '.join(skipped)}{N}")
+if PANEL.name == "Marzban":
+    warn("Marzban: PQ / REALITY configs are 'coming soon' — they will be skipped if selected.")
+if not XRAY or not sh(f"'{XRAY}' x25519 2>/dev/null"):
+    warn("REALITY configs need working `xray x25519`. Install Xray 26+ via panel → Xray → Update.")
+
+# ─── AUTO-SCAN REALITY CAMOUFLAGE TARGETS ───────────────────────────────
+def _tls13_h2_probe(dom):
+    if not dom or not re.match(r"^[A-Za-z0-9.\-]+$", dom):
+        return None
+    t0 = time.time()
+    out = sh(f"echo | timeout 4 openssl s_client -connect {dom}:443 -servername {dom} -alpn h2 -tls1_3 2>/dev/null", 6)
+    if "TLSv1.3" not in out or "ALPN protocol: h2" not in out:
+        return None
+    return (dom, int((time.time() - t0) * 1000))
+
+SNI_FALLBACK = [
+    "dl.google.com","addons.mozilla.org","www.samsung.com","www.nvidia.com",
+    "www.speedtest.net","www.amd.com","www.asus.com","www.lovelive-anime.jp",
+    "www.microsoft.com","www.apple.com","www.cloudflare.com","www.icloud.com",
+    "www.zoom.us","www.github.com","www.wikipedia.org","www.bing.com",
+    "www.python.org","www.ubuntu.com","www.mozilla.org","www.docker.com",
+]
+
+def discover_reality_targets(need_n=8):
+    cache = "reality-targets.txt"
+    if getattr(A, "no_reality_scan", False):
+        info("--no-reality-scan set → using built-in fallback pool")
+        return list(SNI_FALLBACK)[:need_n]
+    if getattr(A, "fresh_reality_scan", False):
+        try: os.remove(cache)
+        except Exception: pass
+    if os.path.exists(cache):
+        try:
+            age = time.time() - os.path.getmtime(cache)
+            if age < 6 * 3600:
+                cached = [l.split("#")[0].strip() for l in open(cache, encoding="utf-8")
+                          if l.strip() and not l.startswith("#")]
+                if len(cached) >= need_n:
+                    info(f"using cached reality targets ({len(cached)} from {cache}, age {int(age/60)}m)")
+                    return cached[:need_n]
+        except Exception: pass
+    pool = list(SNI_FALLBACK)
+    try:
+        RD_LIST = ("https://raw.githubusercontent.com/AyhanMansur/AyhanX-Fredom-Scanner/"
+                   "refs/heads/main/domains.txt")
+        raw = sh(f"curl -fsSL -m 15 {RD_LIST}")
+        if raw:
+            extra = [l.strip() for l in raw.splitlines() if l.strip() and not l.startswith("#") and "." in l]
+            seen = set(pool)
+            for d in extra:
+                if d not in seen:
+                    pool.append(d); seen.add(d)
+                    if len(pool) >= 60: break
+            info(f"fetched {len(extra)} extra candidates from upstream")
+    except Exception: pass
+    info(f"probing {len(pool)} camouflage candidates (TLS 1.3 + ALPN h2) …")
+    t0 = time.time()
+    results = []
+    with cfut.ThreadPoolExecutor(16) as ex:
+        for r in ex.map(_tls13_h2_probe, pool):
+            if r: results.append(r)
+    results.sort(key=lambda t: t[1])
+    took = int(time.time() - t0)
+    good = [d for d, _ in results]
+    if not good:
+        warn("no candidate answered TLS 1.3 + ALPN h2 — using built-in fallback")
+        good = list(SNI_FALLBACK)
+    else:
+        info(f"found {len(good)} working camouflage targets in {took}s "
+             f"(fastest: {good[0]} @ {results[0][1]}ms)")
+    try:
+        with open(cache, "w", encoding="utf-8") as f:
+            f.write("# REALITY camouflage targets — auto-scanned\n")
+            f.write(f"# generated {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            for d, ms in results[:need_n * 2]:
+                f.write(f"{d}  # {ms}ms\n")
+    except Exception: pass
+    return good[:need_n]
+
+_pre_sel = None
+if A.configs:
+    _pre_sel = [x.strip() for x in A.configs.split(",")]
+_reality_picked = bool(_pre_sel and any(k in _pre_sel for k in ("rvpq","rxpq","rgpq","trhv","trxp","trgp")))
+
+if _reality_picked:
+    GOOD_SNI = discover_reality_targets(need_n=8)
+else:
+    GOOD_SNI = list(SNI_FALLBACK)
+sni = lambda i: GOOD_SNI[i % len(GOOD_SNI)]
+
 if A.configs:
     sel_keys = [c[0] for c in avail] if A.configs.strip() == "all" else [x.strip() for x in A.configs.split(",")]
 else:
@@ -620,26 +1173,34 @@ else:
         sel_keys = [avail[i-1][0] for i in sorted(idx) if 1 <= i <= len(avail)]
 SEL = [c for c in avail if c[0] in sel_keys]
 if not SEL: die("Nothing selected.")
+
+filtered = []
+for c in SEL:
+    if PANEL.supports(c[0]): filtered.append(c)
+    else: warn(f"{c[1]}: {COMING_SOON} on {PANEL.name} — skipped")
+SEL = filtered
+if not SEL: die(f"All selected configs are {COMING_SOON} on {PANEL.name}. Use 3x-ui or Pasarguard for full support.")
+
+if not _reality_picked and any(k in sel_keys for k in ("rvpq","rxpq","rgpq","trhv","trxp","trgp")):
+    GOOD_SNI = discover_reality_targets(need_n=8)
+    sni = lambda i: GOOD_SNI[i % len(GOOD_SNI)]
+    head(f"REALITY camouflage targets ({len(GOOD_SNI)})")
+    for d in GOOD_SNI:
+        print(f"  {G}▸{N} {d}")
+elif any(k in sel_keys for k in ("rvpq","rxpq","rgpq","trhv","trxp","trgp")):
+    print(f"  {D}REALITY camouflage targets (auto-scanned, fastest first): "
+          f"{', '.join(GOOD_SNI[:5])}{'…' if len(GOOD_SNI) > 5 else ''}{N}")
+
 CLEAN_N = 0
-if "ws" in sel_keys or "hu" in sel_keys or "th" in sel_keys or "tcx" in sel_keys \
-   or "tcw" in sel_keys or "tch" in sel_keys or ("tx" in sel_keys and CDN):
+if any(k in sel_keys for k in ("tch","tcht")):
     CLEAN_N = int(A.clean) if A.clean is not None else int(re.sub(r"\D","", ask(
         "How many Cloudflare clean-IP configs (0-30)", "20")) or 0)
     CLEAN_N = max(0, min(30, CLEAN_N))
 
 # =========================================================================== ports
-inbs = api("/panel/api/inbounds/list").get("obj") or []
-owner_tcp, owner_udp = {}, {}
-for ib in inbs:
-    st = ib.get("streamSettings")
-    st = json.loads(st) if isinstance(st, str) and st else (st or {})
-    label = f"inbound '{ib.get('remark') or ib['id']}'"
-    if ib["protocol"] in ("hysteria", "wireguard", "amneziawg") or st.get("network") in ("kcp", "hysteria"):
-        owner_udp[ib["port"]] = label
-    else:
-        owner_tcp[ib["port"]] = label
-        if ib["protocol"] in ("shadowsocks", "mixed", "socks", "dokodemo-door", "tunnel"):
-            owner_udp[ib["port"]] = label
+owner_tcp_set, owner_udp_set = PANEL.ports_owned()
+owner_tcp = {pt: "panel" for pt in owner_tcp_set if pt}
+owner_udp = {pt: "panel" for pt in owner_udp_set if pt}
 for flag, dct in (("t", owner_tcp), ("u", owner_udp)):
     for l in sh(f"ss -H -{flag}lnp").splitlines():
         f = l.split()
@@ -648,40 +1209,28 @@ for flag, dct in (("t", owner_tcp), ("u", owner_udp)):
         if m and int(m.group(1)) not in dct:
             pm = re.search(r'\(\("([^"]+)"', l)
             dct[int(m.group(1))] = pm.group(1) if pm else "?"
-for k in ("subPort", "webPort"):
-    if settings.get(k): owner_tcp.setdefault(int(settings[k]), "3x-ui panel/subscription")
-owner_tcp.setdefault(int(pport), "3x-ui panel")
 
 CF_HTTPS = [443, 2053, 2083, 2087, 2096, 8443]
 PREF = {
-    "rv":  [443, 2443, 3443, 6443, 7443],
-    "rx":  [8443, 2443, 3443, 5443, 6443],
-    "rg":  [4443, 5443, 7443, 9444],
-    "tv":  [9443, 9444, 10444, 11444],
-    "tx":  [2087, 2053, 2083, 2096, 8443],
-    "ws":  [2053, 2083, 2087, 2096, 8443],
-    "hu":  [2083, 2053, 2087, 2096, 8443],
-    "th":  [8443, 2096, 2087, 2083, 2053],
-    # CDN-only Trojan variants prefer Cloudflare HTTPS ports
-    "tcx": [2053, 2083, 2087, 2096, 8443, 443],
-    "tcw": [2053, 2083, 2087, 2096, 8443, 443],
-    "tch": [2083, 2053, 2087, 2096, 8443, 443],
-    "hy":  [443, 8443, 4443, 2053, 10443],
-    "pq":  [10443, 11443, 12443, 13443],
-    "tpq": [11444, 12444, 13444, 14444],
-    "ss":  [8080, 8388, 18080, 28080]}
-UDP_ONLY = {"hy"}
-BOTH = {"ss"}
-CDN_KEYS = {"tx", "ws", "hu", "th", "tcx", "tcw", "tch"}
+    "tch":   [2083, 2053, 2087, 2096, 8443],
+    "tcht":  [2087, 2053, 2083, 2096, 8443],
+    "tws":   [8082, 8182, 8282, 8382, 8482],
+    "twsp":  [8084, 8184, 8284, 8384, 8484],
+    "twst":  [9443, 10443, 11443, 12443, 13443],
+    "twstp": [9543, 10543, 11543, 12543, 13543],
+    "thu":   [8086, 8186, 8286, 8386, 8486],
+    "trhv":  [8446, 8546, 8646, 8746, 8846],
+    "trxp":  [8447, 8547, 8647, 8747, 8847],
+    "trgp":  [8448, 8548, 8648, 8748, 8848],
+    "rvpq":  [443, 2443, 3443, 6443, 7443],
+    "rxpq":  [8443, 2443, 3443, 5443, 6443],
+    "rgpq":  [4443, 5443, 7443, 9444],
+}
+UDP_ONLY = set(); BOTH = set(); CDN_KEYS = {"tch", "tcht"}
 MODE = A.ports or ("auto" if not INTERACTIVE else "ask")
 
-def busy(pt, key):
-    t = pt in owner_tcp if key not in UDP_ONLY else False
-    u = pt in owner_udp if (key in UDP_ONLY or key in BOTH) else False
-    return (owner_tcp.get(pt) if t else None) or (owner_udp.get(pt) if u else None)
-def claim(pt, key):
-    if key not in UDP_ONLY: owner_tcp[pt] = "new config"
-    if key in UDP_ONLY or key in BOTH: owner_udp[pt] = "new config"
+def busy(pt, key): return owner_tcp.get(pt)
+def claim(pt, key): owner_tcp[pt] = "new config"
 def free_from(lst, key):
     for pt in lst:
         if not busy(pt, key): return pt
@@ -695,7 +1244,7 @@ for key, name, _, _ in SEL:
     want = PREF[key][0]; who = busy(want, key)
     if not who:
         PLAN[key] = {"port": want, "client_port": 0}; claim(want, key)
-        print(f"  {name:52s} port {want}{'/udp' if key in UDP_ONLY else ''}"); continue
+        print(f"  {name:52s} port {want}"); continue
     alt = free_from(PREF[key], key)
     cdn_note = key in CDN_KEYS and (alt is None or alt not in CF_HTTPS)
     print(f"  {Y}{name:52s} port {want} used by {who}{N}")
@@ -725,19 +1274,6 @@ for key, name, _, _ in SEL:
     print(f"    → port {alt}")
 if not PLAN: die("Nothing to add.")
 
-# =========================================================================== REALITY SNI + CLEAN
-def tls13_h2(sni):
-    out = sh(f"echo | timeout 6 openssl s_client -connect {sni}:443 -servername {sni} -alpn h2 -tls1_3 2>/dev/null", 10)
-    return "TLSv1.3" in out and "ALPN protocol: h2" in out
-SNI_POOL = ["dl.google.com","addons.mozilla.org","www.samsung.com","www.nvidia.com","www.speedtest.net",
-            "www.amd.com","www.asus.com","www.lovelive-anime.jp"]
-if any(k in PLAN for k in ("rv","rx","rg")):
-    with cfut.ThreadPoolExecutor(8) as ex:
-        okmap = dict(zip(SNI_POOL, ex.map(tls13_h2, SNI_POOL)))
-    GOOD_SNI = [s for s in SNI_POOL if okmap[s]] or SNI_POOL
-else: GOOD_SNI = SNI_POOL
-sni = lambda i: GOOD_SNI[i % len(GOOD_SNI)]
-
 CLEAN = []
 if CLEAN_N and CDN:
     if os.path.exists("clean-ips.txt") and os.path.getsize("clean-ips.txt") > 0:
@@ -747,9 +1283,9 @@ if CLEAN_N and CDN:
         lst = sh(f"curl -fsSL -m10 {REPO_RAW}/clean-ips.txt") if REPO_RAW else ""
     cand = [l.split("#")[0].strip() for l in lst.splitlines() if l.split("#")[0].strip()]
     if not cand: cand = __FALLBACK_CLEAN__
-    cdn_port = next((PLAN[k]["port"] for k in ("ws","hu","tx","th","tcx","tcw","tch")
+    cdn_port = next((PLAN[k]["port"] for k in CDN_KEYS
                      if k in PLAN and not PLAN[k].get("origin_rule")), None)
-    if not cdn_port and any(PLAN.get(k, {}).get("origin_rule") for k in ("ws","hu","tx","th","tcx","tcw","tch")):
+    if not cdn_port and any(PLAN.get(k, {}).get("origin_rule") for k in CDN_KEYS):
         cdn_port = 443
     if cdn_port:
         def via_cf(a):
@@ -766,11 +1302,11 @@ if CLEAN_N and CDN:
         info(f"{len(CLEAN)} clean ready")
 
 head("Plan")
-print(f"  address {ADDR}" + (f" · IPv6 {PUB6}" if PUB6 else "") + (f" · CDN {CDN}" if CDN else ""))
+print(f"  panel {PANEL.name} · address {ADDR}" + (f" · IPv6 {PUB6}" if PUB6 else "") + (f" · CDN {CDN}" if CDN else ""))
 for key, name, _, _ in SEL:
     if key in PLAN:
         pl = PLAN[key]
-        print(f"  {G}+{N} {name:52s} port {pl['port']}{'/udp' if key in UDP_ONLY else ''}"
+        print(f"  {G}+{N} {name:52s} port {pl['port']}"
               + (f"  (Origin Rule)" if pl.get("origin_rule") else ""))
 if CLEAN: print(f"  {G}+{N} {len(CLEAN)} clean-IP configs")
 print(f"  {D}existing inbounds untouched: {len(inbs)}{N}")
@@ -780,17 +1316,21 @@ if not yes("Start?", True): sys.exit(0)
 # =========================================================================== builders
 hx = secrets.token_hex
 def x25519():
+    if not XRAY: raise RuntimeError("xray binary not found — install/update Xray 26+ first")
     d = {}
-    for l in sh(f"{XRAY} x25519").splitlines():
+    for l in sh(f"'{XRAY}' x25519").splitlines():
         k, _, v = l.partition(":"); d[k.strip()] = v.strip()
-    return d.get("PrivateKey") or d.get("Private key"), \
-        d.get("Password (PublicKey)") or d.get("Password") or d.get("PublicKey") or d.get("Public key")
+    priv = d.get("PrivateKey") or d.get("Private key")
+    pub  = d.get("Password (PublicKey)") or d.get("Password") or d.get("PublicKey") or d.get("Public key")
+    if not priv or not pub: raise RuntimeError("xray x25519 returned empty — update Xray-core to 26+")
+    return priv, pub
 def vlessenc():
-    out = sh(f"{XRAY} vlessenc").splitlines()
+    if not XRAY: raise RuntimeError("xray binary not found — install/update Xray 26+ first")
+    out = sh(f"'{XRAY}' vlessenc").splitlines()
     for n, l in enumerate(out):
         if "X25519" in l and n + 2 < len(out):
             return out[n+1].split('"')[3], out[n+2].split('"')[3]
-    raise RuntimeError("no vlessenc (Xray 26 needed)")
+    raise RuntimeError("this Xray has no 'vlessenc' (update Xray-core to 26)")
 def reality(network, target, extra):
     priv, pub = x25519()
     s = {"network": network, "security": "reality", "externalProxy": [],
@@ -810,150 +1350,135 @@ def tls_stream(network, extra, alpn):
 TCP = {"tcpSettings": {"acceptProxyProtocol": False, "header": {"type": "none"}}}
 XH = lambda: {"path": "/" + hx(5), "host": "", "mode": "auto", "xPaddingBytes": "100-1000",
               "noSSEHeader": False, "scMaxEachPostBytes": "1000000", "scMaxBufferedPosts": 30}
-VL = lambda: {"clients": [], "decryption": "none", "fallbacks": []}
 FRAG = json.dumps({"tcp":[{"type":"fragment","settings":{"packets":"tlshello","lengths":["10-30"],"delays":["5-15"]}}]})
 SNIFF = {"enabled": True, "destOverride": ["http","tls","quic"], "metadataOnly": False, "routeOnly": True}
 PATHS = {}
-def ws_stream():
-    PATHS["ws"] = "/" + hx(5)
-    return tls_stream("ws", {"wsSettings": {"acceptProxyProtocol": False, "path": PATHS["ws"],
-                                            "host": "", "headers": {}, "heartbeatPeriod": 30}}, ["http/1.1"])
-def hu_stream():
-    PATHS["hu"] = "/" + hx(5)
+
+def _finalmask_sudoku():
+    return {"tcp":[{"type":"sudoku","settings":{"password":hx(16),"ascii":"prefer_entropy",
+                                                 "paddingMin":2,"paddingMax":7}}]}
+def pq(stream):
+    s = dict(stream); s["finalmask"] = _finalmask_sudoku(); return s
+
+def tch_stream():
+    PATHS["tch"] = "/" + hx(5)
+    return {"network": "httpupgrade", "security": "none", "externalProxy": [],
+            "httpupgradeSettings": {"acceptProxyProtocol": False,
+                                    "path": PATHS["tch"], "host": "", "headers": {}}}
+def tcht_stream():
+    PATHS["tcht"] = "/" + hx(5)
     return tls_stream("httpupgrade", {"httpupgradeSettings": {"acceptProxyProtocol": False,
-                                                              "path": PATHS["hu"], "host": "", "headers": {}}},
+                                                              "path": PATHS["tcht"], "host": "", "headers": {}}},
                       ["http/1.1"])
-def th_stream():
-    PATHS["th"] = "/" + hx(5)
-    return tls_stream("httpupgrade", {"httpupgradeSettings": {"acceptProxyProtocol": False,
-                                                              "path": PATHS["th"], "host": "", "headers": {}}},
-                      ["http/1.1"])
-def tcx_stream():
-    """Trojan + TLS + XHTTP (CDN)."""
-    x = XH(); PATHS["tcx"] = x["path"]
-    return tls_stream("xhttp", {"xhttpSettings": x}, ["h2","http/1.1"])
-def tcw_stream():
-    """Trojan + TLS + WebSocket (CDN)."""
-    PATHS["tcw"] = "/" + hx(5)
-    return tls_stream("ws", {"wsSettings": {"acceptProxyProtocol": False, "path": PATHS["tcw"],
+def tws_stream():
+    PATHS["tws"] = "/" + hx(5)
+    return {"network": "ws", "security": "none", "externalProxy": [],
+            "wsSettings": {"acceptProxyProtocol": False, "path": PATHS["tws"],
+                           "host": "", "headers": {}, "heartbeatPeriod": 30}}
+def twsp_stream():
+    PATHS["twsp"] = "/" + hx(5)
+    base = {"network": "ws", "security": "none", "externalProxy": [],
+            "wsSettings": {"acceptProxyProtocol": False, "path": PATHS["twsp"],
+                           "host": "", "headers": {}, "heartbeatPeriod": 30}}
+    return pq(base)
+def twst_stream():
+    PATHS["twst"] = "/" + hx(5)
+    return tls_stream("ws", {"wsSettings": {"acceptProxyProtocol": False, "path": PATHS["twst"],
                                             "host": "", "headers": {}, "heartbeatPeriod": 30}},
                       ["http/1.1"])
-def tch_stream():
-    """Trojan + TLS + HTTPUpgrade (CDN)."""
-    PATHS["tch"] = "/" + hx(5)
-    return tls_stream("httpupgrade", {"httpupgradeSettings": {"acceptProxyProtocol": False,
-                                                              "path": PATHS["tch"], "host": "", "headers": {}}},
+def twstp_stream():
+    PATHS["twstp"] = "/" + hx(5)
+    base = tls_stream("ws", {"wsSettings": {"acceptProxyProtocol": False, "path": PATHS["twstp"],
+                                            "host": "", "headers": {}, "heartbeatPeriod": 30}},
                       ["http/1.1"])
-def tx_stream():
-    x = XH(); PATHS["tx"] = x["path"]
-    return tls_stream("xhttp", {"xhttpSettings": x}, ["h2","http/1.1"])
-def pq():
-    dec, enc = vlessenc()
-    return ({"clients": [], "decryption": dec, "encryption": enc},
-            {"network":"tcp","security":"none","externalProxy":[], **TCP,
-             "finalmask":{"tcp":[{"type":"sudoku","settings":{"password":hx(16),"ascii":"prefer_entropy",
-                                                              "paddingMin":2,"paddingMax":7}}]}})
-def tpq():
-    return ({"clients": []},
-            {"network":"tcp","security":"none","externalProxy":[], **TCP,
-             "finalmask":{"tcp":[{"type":"sudoku","settings":{"password":hx(16),"ascii":"prefer_entropy",
-                                                              "paddingMin":2,"paddingMax":7}}]}})
+    return pq(base)
+def thu_stream():
+    PATHS["thu"] = "/" + hx(5)
+    return {"network": "httpupgrade", "security": "none", "externalProxy": [],
+            "httpupgradeSettings": {"acceptProxyProtocol": False,
+                                    "path": PATHS["thu"], "host": "", "headers": {}}}
+
 BUILD = {
-    "rv":  ("vless", lambda: (VL(), reality("tcp", sni(0), TCP))),
-    "rx":  ("vless", lambda: (VL(), reality("xhttp", sni(1), {"xhttpSettings": XH()}))),
-    "rg":  ("vless", lambda: (VL(), reality("grpc", sni(2), {"grpcSettings": {"serviceName": hx(4), "authority": "",
-                                                                              "multiMode": True}}))),
-    "tv":  ("vless", lambda: (VL(), tls_stream("tcp", TCP, ["h2","http/1.1"]))),
-    "tx":  ("vless", lambda: (VL(), tx_stream())),
-    "ws":  ("vless", lambda: (VL(), ws_stream())),
-    "hu":  ("vless", lambda: (VL(), hu_stream())),
-    "th":  ("trojan", lambda: ({"clients": []}, th_stream())),
-    "tcx": ("trojan", lambda: ({"clients": []}, tcx_stream())),
-    "tcw": ("trojan", lambda: ({"clients": []}, tcw_stream())),
-    "tch": ("trojan", lambda: ({"clients": []}, tch_stream())),
-    "hy":  ("hysteria", lambda: ({"version": 2, "clients": []},
-                                 {"network":"hysteria","security":"tls","externalProxy":[],"tlsSettings":tls(["h3"]),
-                                  "hysteriaSettings":{"version":2,"udpIdleTimeout":60,
-                                                      "masquerade":{"type":"proxy","url":"https://www.bing.com",
-                                                                    "rewriteHost":True}},
-                                  "finalmask":{"udp":[{"type":"salamander","settings":{"password":hx(16)}}],
-                                               "quicParams":{"congestion":"bbr"}}})),
-    "pq":  ("vless", pq),
-    "tpq": ("trojan", tpq),
-    "ss":  ("shadowsocks", lambda: ({"method":"2022-blake3-aes-256-gcm",
-                                     "password":base64.b64encode(secrets.token_bytes(32)).decode(),
-                                     "network":"tcp,udp","clients":[],"ivCheck":False},
-                                    {"network":"tcp","security":"none","externalProxy":[], **TCP})),
+    "tch":   ("trojan", lambda: ({"clients": []}, tch_stream())),
+    "tcht":  ("trojan", lambda: ({"clients": []}, tcht_stream())),
+    "tws":   ("trojan", lambda: ({"clients": []}, tws_stream())),
+    "twsp":  ("trojan", lambda: ({"clients": []}, twsp_stream())),
+    "twst":  ("trojan", lambda: ({"clients": []}, twst_stream())),
+    "twstp": ("trojan", lambda: ({"clients": []}, twstp_stream())),
+    "thu":   ("trojan", lambda: ({"clients": []}, thu_stream())),
+    "trhv":  ("trojan", lambda: ({"clients": []}, reality("httpupgrade", sni(6),
+                                                          {"httpupgradeSettings": {"acceptProxyProtocol": False,
+                                                                                   "path": "/" + hx(5),
+                                                                                   "host": "", "headers": {}}}))),
+    "trxp":  ("trojan", lambda: ({"clients": []}, reality("xhttp", sni(7), {"xhttpSettings": XH()}))),
+    "trgp":  ("trojan", lambda: ({"clients": []}, reality("grpc", sni(8),
+                                                          {"grpcSettings": {"serviceName": hx(4),
+                                                                            "authority": "",
+                                                                            "multiMode": True}}))),
+    "rvpq":  ("vless", lambda: ({"clients": [], "decryption": "none", "fallbacks": []},
+                                pq(reality("tcp", sni(3), TCP)))),
+    "rxpq":  ("vless", lambda: ({"clients": [], "decryption": "none", "fallbacks": []},
+                                pq(reality("xhttp", sni(4), {"xhttpSettings": XH()})))),
+    "rgpq":  ("vless", lambda: ({"clients": [], "decryption": "none", "fallbacks": []},
+                                pq(reality("grpc", sni(5), {"grpcSettings": {"serviceName": hx(4),
+                                                                              "authority": "",
+                                                                              "multiMode": True}})))),
 }
 REMARK = {
-    "rv":  f"{BRAND}⚡𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐕𝐢𝐬𝐢𝐨𝐧",
-    "rx":  f"{BRAND}🌀𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐗𝐇𝐓𝐓𝐏",
-    "rg":  f"{BRAND}🔷𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐠𝐑𝐏𝐂",
-    "tv":  f"{BRAND}🔐𝐓𝐋𝐒-𝐕𝐢𝐬𝐢𝐨𝐧",
-    "tx":  f"{BRAND}🛰𝐓𝐋𝐒-𝐗𝐇𝐓𝐓𝐏",
-    "ws":  f"{BRAND}🌐𝐂𝐃𝐍-𝐖𝐒",
-    "hu":  f"{BRAND}🔗𝐂𝐃𝐍-𝐇𝐓𝐓𝐏𝐔𝐩𝐠𝐫𝐚𝐝𝐞",
-    "th":  f"{BRAND}🛡️𝐓𝐫𝐨𝐣𝐚𝐧-𝐇𝐔",
-    "tcx": f"{BRAND}🛡️𝐓𝐫𝐨𝐣𝐚𝐧-𝐂𝐃𝐍-𝐗𝐇𝐓𝐓𝐏",
-    "tcw": f"{BRAND}🛡️𝐓𝐫𝐨𝐣𝐚𝐧-𝐂𝐃𝐍-𝐖𝐒",
-    "tch": f"{BRAND}🛡️𝐓𝐫𝐨𝐣𝐚𝐧-𝐂𝐃𝐍-𝐇𝐔",
-    "hy":  f"{BRAND}🚄𝐇𝐲𝐬𝐭𝐞𝐫𝐢𝐚𝟐",
-    "pq":  f"{BRAND}🧬𝐏𝐐-𝐒𝐮𝐝𝐨𝐤𝐮",
-    "tpq": f"{BRAND}🧬𝐓𝐫𝐨𝐣𝐚𝐧-𝐏𝐐",
-    "ss":  f"{BRAND}🛟𝐒𝐡𝐚𝐝𝐨𝐰𝐬𝐨𝐜𝐤𝐬-𝟐𝟎𝟐𝟐",
+    "tch":   f"{BRAND}👾Trojan • HU • CDN",
+    "tcht":  f"{BRAND}👾Trojan • HU • CDN • TLS",
+    "tws":   f"{BRAND}👾Trojan • WS",
+    "twsp":  f"{BRAND}🧬Trojan • WS • PQ",
+    "twst":  f"{BRAND}👾Trojan • WS • TLS",
+    "twstp": f"{BRAND}🧬Trojan • WS • TLS • PQ",
+    "thu":   f"{BRAND}👾Trojan • HU • Plain",
+    "trhv":  f"{BRAND}👾Trojan • REALITY • HU",
+    "trxp":  f"{BRAND}👾Trojan • REALITY • XH",
+    "trgp":  f"{BRAND}👾Trojan • REALITY • gRPC",
+    "rvpq":  f"{BRAND}🧬Reality • Vision • PQ",
+    "rxpq":  f"{BRAND}🧬Reality • XHTTP • PQ",
+    "rgpq":  f"{BRAND}🧬Reality • gRPC • PQ",
 }
 def cdn_host(name, addr, key):
     cp = PLAN[key].get("client_port", 0)
     return (name, addr, {"sni": CDN, "hostHeader": CDN, "finalMask": FRAG, **({"port": cp} if cp else {})})
 def HOSTS(key):
-    v6 = lambda n, ex={}: [(f"{BRAND}6️⃣{n}-IPv6", PUB6, ex)] if PUB6 else []
-    if key == "rv": return [(f"{BRAND}⚡𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐕𝐢𝐬𝐢𝐨𝐧", ADDR, {})] + v6("𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐕𝐢𝐬𝐢𝐨𝐧")
-    if key == "rx": return [(f"{BRAND}🌀𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐗𝐇𝐓𝐓𝐏", ADDR, {})] + v6("𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐗𝐇𝐓𝐓𝐏")
-    if key == "rg": return [(f"{BRAND}🔷𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐠𝐑𝐏𝐂", ADDR, {})]
-    if key == "tv": return [(f"{BRAND}🔐𝐓𝐋𝐒-𝐕𝐢𝐬𝐢𝐨𝐧", ADDR, {"sni": DOMAIN}),
-                            (f"{BRAND}🔐𝐓𝐋𝐒-𝐕𝐢𝐬𝐢𝐨𝐧-𝐅𝐫𝐚𝐠", ADDR, {"sni": DOMAIN, "finalMask": FRAG})] + v6("𝐓𝐋𝐒-𝐕𝐢𝐬𝐢𝐨𝐧", {"sni": DOMAIN})
-    if key == "tx":
-        h = [] if PLAN["tx"].get("origin_rule") else [(f"{BRAND}🛰𝐓𝐋𝐒-𝐗𝐇𝐓𝐓𝐏", ADDR, {"sni": DOMAIN, "hostHeader": DOMAIN})]
-        return h + ([cdn_host(f"{BRAND}🛰𝐂𝐃𝐍-𝐗𝐇𝐓𝐓𝐏-𝐅𝐫𝐚𝐠", CDN, "tx")] if CDN else [])
-    if key == "ws": return [cdn_host(f"{BRAND}🌐𝐂𝐃𝐍-𝐖𝐒-𝐅𝐫𝐚𝐠", CDN, "ws")]
-    if key == "hu": return [cdn_host(f"{BRAND}🔗𝐂𝐃𝐍-𝐇𝐔-𝐅𝐫𝐚𝐠", CDN, "hu")]
-    if key == "th":
-        h = [] if PLAN["th"].get("origin_rule") else [(f"{BRAND}🛡️𝐓𝐫𝐨𝐣𝐚𝐧-𝐇𝐔", ADDR, {"sni": DOMAIN, "hostHeader": DOMAIN})]
-        return h + ([cdn_host(f"{BRAND}☁️𝐓𝐫𝐨𝐣𝐚𝐧-𝐂𝐃𝐍", CDN, "th")] if CDN else [])
-    if key == "tcx":
-        h = [] if PLAN["tcx"].get("origin_rule") else [(f"{BRAND}🛡️𝐓𝐫𝐨𝐣𝐚𝐧-𝐗𝐇𝐓𝐓𝐏", ADDR, {"sni": DOMAIN, "hostHeader": DOMAIN})]
-        return h + ([cdn_host(f"{BRAND}☁️𝐓𝐫𝐨𝐣𝐚𝐧-𝐂𝐃𝐍-𝐗𝐇𝐓𝐓𝐏", CDN, "tcx")] if CDN else [])
-    if key == "tcw":
-        h = [] if PLAN["tcw"].get("origin_rule") else [(f"{BRAND}🛡️𝐓𝐫𝐨𝐣𝐚𝐧-𝐖𝐒", ADDR, {"sni": DOMAIN, "hostHeader": DOMAIN})]
-        return h + ([cdn_host(f"{BRAND}☁️𝐓𝐫𝐨𝐣𝐚𝐧-𝐂𝐃𝐍-𝐖𝐒", CDN, "tcw")] if CDN else [])
+    v6 = lambda n, ex={}: [(f"{BRAND}6️⃣{n} • IPv6", PUB6, ex)] if PUB6 else []
     if key == "tch":
-        h = [] if PLAN["tch"].get("origin_rule") else [(f"{BRAND}🛡️𝐓𝐫𝐨𝐣𝐚𝐧-𝐇𝐔", ADDR, {"sni": DOMAIN, "hostHeader": DOMAIN})]
-        return h + ([cdn_host(f"{BRAND}☁️𝐓𝐫𝐨𝐣𝐚𝐧-𝐂𝐃𝐍-𝐇𝐔", CDN, "tch")] if CDN else [])
-    if key == "hy": return [(f"{BRAND}🚄𝐇𝐲𝐬𝐭𝐞𝐫𝐢𝐚𝟐", ADDR, {"sni": DOMAIN})]
-    if key == "pq": return [(f"{BRAND}🧬𝐏𝐐-𝐒𝐮𝐝𝐨𝐤𝐮", ADDR, {})]
-    if key == "tpq": return [(f"{BRAND}🧬𝐓𝐫𝐨𝐣𝐚𝐧-𝐏𝐐", ADDR, {})]
-    if key == "ss": return [(f"{BRAND}🛟𝐒𝐡𝐚𝐝𝐨𝐰𝐬𝐨𝐜𝐤𝐬-𝟐𝟎𝟐𝟐", ADDR, {})]
+        return [cdn_host(f"{BRAND}☁️CDN • HU", CDN, "tch")]
+    if key == "tcht":
+        h = [] if PLAN["tcht"].get("origin_rule") else [(f"{BRAND}👾Trojan • HU • TLS", ADDR,
+                                                         {"sni": DOMAIN, "hostHeader": DOMAIN})]
+        return h + ([cdn_host(f"{BRAND}☁️CDN • HU • TLS", CDN, "tcht")] if CDN else [])
+    if key == "tws":   return [(f"{BRAND}👾Trojan • WS", ADDR, {})] + v6("Trojan • WS")
+    if key == "twsp":  return [(f"{BRAND}🧬Trojan • WS • PQ", ADDR, {})] + v6("Trojan • WS • PQ")
+    if key == "twst":  return [(f"{BRAND}👾Trojan • WS • TLS", ADDR, {"sni": DOMAIN})] + v6("Trojan • WS • TLS", {"sni": DOMAIN})
+    if key == "twstp": return [(f"{BRAND}🧬Trojan • WS • TLS • PQ", ADDR, {"sni": DOMAIN})] + v6("Trojan • WS • TLS • PQ", {"sni": DOMAIN})
+    if key == "thu":   return [(f"{BRAND}👾Trojan • HU • Plain", ADDR, {})] + v6("Trojan • HU • Plain")
+    if key == "trhv":  return [(f"{BRAND}👾Trojan • REALITY • HU", ADDR, {})] + v6("Trojan • REALITY • HU")
+    if key == "trxp":  return [(f"{BRAND}👾Trojan • REALITY • XH", ADDR, {})] + v6("Trojan • REALITY • XH")
+    if key == "trgp":  return [(f"{BRAND}👾Trojan • REALITY • gRPC", ADDR, {})] + v6("Trojan • REALITY • gRPC")
+    if key == "rvpq":  return [(f"{BRAND}🧬Reality • Vision • PQ", ADDR, {})] + v6("Reality • Vision • PQ")
+    if key == "rxpq":  return [(f"{BRAND}🧬Reality • XHTTP • PQ", ADDR, {})] + v6("Reality • XHTTP • PQ")
+    if key == "rgpq":  return [(f"{BRAND}🧬Reality • gRPC • PQ", ADDR, {})] + v6("Reality • gRPC • PQ")
     return []
 
 # =========================================================================== apply
 head("Adding")
-bak = f"{DB}.bak-pro-{int(time.time())}"
-if os.path.exists(DB):
-    shutil.copy(DB, bak); info("database backup:", bak)
-emails = {c.get("email") for c in (api("/panel/api/clients/list").get("obj") or [])}
-EMAIL = A.email or f"pro-{hx(2)}"
-while EMAIL in emails: EMAIL = f"{EMAIL}-{hx(1)}"
+bak = PANEL.db_backup()
+if bak: info("backup:", bak)
+try: emails = {c.get("email") or c.get("username") for c in (PANEL.clients_list() or [])}
+except Exception: emails = set()
+EMAIL = A.email or f"pro_{hx(2)}"
+while EMAIL in emails: EMAIL = f"{EMAIL}_{hx(1)}"
 SUBID = "".join(secrets.choice(string.ascii_lowercase + string.digits) for _ in range(16))
-CLIENT = {"email": EMAIL, "subId": SUBID, "flow": "xtls-rprx-vision",
-          "password": base64.b64encode(secrets.token_bytes(32)).decode(),
-          "totalGB": 0, "expiryTime": 0, "limitIp": 0, "limitHwid": 0, "enable": True, "tgId": 0, "comment": "3x-ui-pro-configs"}
-def restart(): api("/panel/api/server/restartXrayService", post=True)
-def xray_ok(pt, udp):
+PASSWORD = base64.b64encode(secrets.token_bytes(32)).decode()
+
+def xray_ok(pt):
     for _ in range(10):
         time.sleep(1.5)
-        if ((api("/panel/api/server/status").get("obj") or {}).get("xray") or {}).get("state") == "running":
-            if "xray" in sh(f"ss -H -{'u' if udp else 't'}lnp 'sport = :{pt}'"):
-                return True
+        if f":{pt}" in sh(f"ss -H -tlnp 'sport = :{pt}'"):
+            return True
     return False
 
 added, made_client = [], False
@@ -962,64 +1487,56 @@ for key, name, _, _ in SEL:
     pt = PLAN[key]["port"]; proto, build = BUILD[key]
     try: st, stream = build()
     except Exception as e: warn(f"{name}: {e} — skipped"); continue
-    r = api("/panel/api/inbounds/add", {"up": 0, "down": 0, "total": 0, "remark": REMARK[key], "enable": True, "expiryTime": 0,
-                                        "listen": "", "port": pt, "protocol": proto, "settings": st,
-                                        "streamSettings": stream, "sniffing": SNIFF})
-    iid = (r.get("obj") or {}).get("id")
-    if not r.get("success") or not iid:
-        warn(f"{name}: panel refused ({r.get('msg')}) — skipped"); continue
+    iid = PANEL.add_inbound(REMARK[key], pt, proto, st, stream, SNIFF)
+    if not iid:
+        warn(f"{name}: panel refused — skipped"); continue
     if not made_client:
-        cr = api("/panel/api/clients/add", {"client": CLIENT, "inboundIds": [iid]})
-        made_client = bool(cr.get("success"))
+        made_client = PANEL.add_client(EMAIL, SUBID, PASSWORD, [iid])
         if not made_client:
-            api(f"/panel/api/inbounds/del/{iid}", post=True); die("could not create client:", cr.get("msg"))
+            PANEL.del_inbound(iid); die("could not create client")
     else:
-        api(f"/panel/api/clients/{EMAIL}/attach", {"inboundIds": [iid]})
-    restart()
-    if xray_ok(pt, key in UDP_ONLY):
+        PANEL.attach_client(EMAIL, [iid])
+    PANEL.restart()
+    if xray_ok(pt):
         added.append((key, iid)); info(f"added {name:52s} port {pt}")
     else:
         warn(f"{name}: engine rejected — removed")
-        api(f"/panel/api/clients/{EMAIL}/detach", {"inboundIds": [iid]})
-        api(f"/panel/api/inbounds/del/{iid}", post=True); restart(); time.sleep(3)
+        PANEL.detach_client(EMAIL, [iid]); PANEL.del_inbound(iid); PANEL.restart(); time.sleep(3)
 if not added: die("Nothing could be added.")
 ADDED = dict(added)
 
-settings = api("/panel/api/setting/all", post=True).get("obj") or settings
-tmpl = settings.get("remarkTemplate", "")
-use_hosts = "{{HOST}}" in tmpl or not inbs
-if not use_hosts:
-    print()
-    warn(f"remarkTemplate = '{tmpl}'")
-    use_hosts = yes("Set remarkTemplate to {{HOST}}?", True)
-chg = False
-if use_hosts and "{{HOST}}" not in tmpl: settings["remarkTemplate"] = "{{HOST}}"; chg = True
-if not settings.get("subJsonEnable"): settings["subJsonEnable"] = True; chg = True
-if chg: info("panel settings:", api("/panel/api/setting/update", settings).get("msg"))
+use_hosts = False
+if PANEL.name == "3x-ui":
+    s = PANEL._http("/panel/api/setting/all", method="POST").get("obj") or {}
+    tmpl = s.get("remarkTemplate", "")
+    use_hosts = "{{HOST}}" in tmpl or not inbs
+    if not use_hosts:
+        warn(f"remarkTemplate = '{tmpl}'")
+        use_hosts = yes("Set remarkTemplate to {{HOST}}?", True)
+    if use_hosts and "{{HOST}}" not in tmpl:
+        PANEL.set_remark_template("{{HOST}}")
+else:
+    use_hosts = True
 
-clean_key = next((k for k in ("ws","hu","tx","th","tcx","tcw","tch") if k in ADDED and not PLAN[k].get("origin_rule")), None) \
-            or next((k for k in ("ws","hu","tx","th","tcx","tcw","tch") if k in ADDED), None)
+clean_key = next((k for k in CDN_KEYS if k in ADDED and not PLAN[k].get("origin_rule")), None) \
+            or next((k for k in CDN_KEYS if k in ADDED), None)
 n_links = 0
 for order, (key, iid) in enumerate(added):
-    api(f"/panel/api/inbounds/{iid}/subSortIndex", {"subSortIndex": 100 + order})
     hosts = HOSTS(key)
     if key == clean_key and CLEAN:
-        hosts += [cdn_host(f"{BRAND}🧊𝐂𝐥𝐞𝐚𝐧-{i:02d}", a, key) for i, a in enumerate(CLEAN, 1)]
+        hosts += [cdn_host(f"{BRAND}🧊Clean • {i:02d}", a, key) for i, a in enumerate(CLEAN, 1)]
     if not use_hosts:
-        hosts = [h for h in hosts if h[1] == CDN or h[1] in CLEAN] if key in ("ws","hu","th","tcx","tcw","tch") else []
+        hosts = [h for h in hosts if h[1] == CDN or h[1] in CLEAN] if key in CDN_KEYS else []
     for i, (rem, addr, extra) in enumerate(hosts):
         if not addr: continue
-        r = api("/panel/api/hosts/add", {"inboundIds": [iid], "remark": rem, "hosts": [addr], "port": 0,
-                                         "security": "same", "sortOrder": i, **extra})
-        n_links += bool(r.get("success"))
-        if not r.get("success"): warn(f"host {rem}: {r.get('msg')}")
+        r = PANEL.add_host(iid, rem, addr, extra, i)
+        n_links += bool(r)
+        if not r: warn(f"host {rem}: rejected")
 
 ufw = sh("ufw status 2>/dev/null | head -1")
 if "Status: active" in ufw:
     for key, _ in added:
-        pt = PLAN[key]["port"]
-        if key not in UDP_ONLY: sh(f"ufw allow {pt}/tcp")
-        if key in UDP_ONLY or key in BOTH: sh(f"ufw allow {pt}/udp")
+        pt = PLAN[key]["port"]; sh(f"ufw allow {pt}/tcp")
     info("ufw: ports opened")
 
 if not A.no_bbr and "bbr" not in sh("sysctl -n net.ipv4.tcp_congestion_control"):
@@ -1029,23 +1546,22 @@ if not A.no_bbr and "bbr" not in sh("sysctl -n net.ipv4.tcp_congestion_control")
         sh("modprobe tcp_bbr; sysctl --system")
         info("BBR:", sh("sysctl -n net.ipv4.tcp_congestion_control"))
 
-info("restarting panel ...")
-api("/panel/api/setting/restartPanel", post=True); time.sleep(8); restart(); time.sleep(4)
+info("restarting engine ...")
+PANEL.restart(); time.sleep(4)
 
-settings = api("/panel/api/setting/all", post=True).get("obj") or settings
-sport = settings.get("subPort", 2096)
-sscheme = "https" if settings.get("subCertFile") else "http"
-shost = settings.get("subDomain") or DOMAIN or PUB4
-SUB = f"{sscheme}://{shost}:{sport}{settings.get('subPath', '/sub/')}{SUBID}"
-JSUB = f"{sscheme}://{shost}:{sport}{settings.get('subJsonPath', '/json/')}{SUBID}"
-sres = ["--resolve", f"{shost}:{sport}:127.0.0.1"] if re.search(r"[a-z]", shost) else []
+SUB, JSUB = PANEL.sub_urls(EMAIL if PANEL.name in ("Marzban", "Pasarguard") else SUBID)
+if not SUB:
+    warn("subscription URL unavailable"); SUB = JSUB = "(n/a)"
 
 # =========================================================================== test
 passed = total = 0
-if not A.no_test and XRAY:
+if not A.no_test and XRAY and PANEL.name == "3x-ui" and JSUB and JSUB != "(n/a)":
     head("E2E test")
     try:
-        subs = json.loads(subprocess.run(["curl", "-sk", "-m", "20"] + sres + [JSUB if sres else JSUB.replace(shost, "127.0.0.1")],
+        jhost = urllib.parse.urlparse(JSUB).hostname or "127.0.0.1"
+        jport = urllib.parse.urlparse(JSUB).port or 80
+        sres = ["--resolve", f"{jhost}:{jport}:127.0.0.1"] if re.search(r"[a-z]", jhost) else []
+        subs = json.loads(subprocess.run(["curl","-sk","-m","20"] + sres + [JSUB],
                                          capture_output=True, text=True).stdout)
         subs = subs if isinstance(subs, list) else [subs]
     except Exception: subs = []; warn("couldn't read JSON subscription")
@@ -1087,13 +1603,23 @@ if not A.no_test and XRAY:
             try: os.remove("/tmp/.xui-pro-e2e.json")
             except Exception: pass
         info(f"{passed}/{total} work")
+elif not A.no_test:
+    head("Bind check")
+    okc = 0
+    for key, _ in added:
+        pt = PLAN[key]["port"]
+        live = f":{pt}" in sh(f"ss -H -tlnp 'sport = :{pt}'")
+        print(f"  {G+'OK  '+N if live else R+'FAIL'+N} {REMARK[key]} port {pt}")
+        okc += live
+    info(f"{okc}/{len(added)} ports listening (e2e skipped on {PANEL.name})")
 
 # =========================================================================== done
 head("Done")
-print(f"  client       {B}{EMAIL}{N}   ({len(added)} inbounds, {n_links} links — {len(inbs)} existing inbounds untouched)")
-print(f"  subscription {B}{SUB}{N}")
-print(f"  JSON sub     {B}{JSUB}{N}")
-ports_txt = ", ".join(f"{PLAN[k]['port']}/{'udp' if k in UDP_ONLY else ('tcp+udp' if k in BOTH else 'tcp')}" for k, _ in added)
+print(f"  panel        {PANEL.name}  ({len(added)} inbounds, {n_links} links, {len(inbs)} existing untouched)")
+print(f"  client       {B}{EMAIL}{N}")
+if SUB and SUB != "(n/a)": print(f"  subscription {B}{SUB}{N}")
+if JSUB and JSUB != "(n/a)": print(f"  JSON sub     {B}{JSUB}{N}")
+ports_txt = ", ".join(f"{PLAN[k]['port']}/tcp" for k, _ in added)
 print(f"\n  Open in cloud firewall: {ports_txt}")
 if CDN:
     print(f"  Cloudflare: {CDN} = proxied · {DOMAIN} = DNS-only · SSL/TLS = Full")
@@ -1104,8 +1630,6 @@ if rules_needed:
         print(f"    Hostname = {CDN} AND Path starts with {PATHS.get(k,'/')}  →  port {pt}")
 if bak: print(f"\n  backup: {bak}")
 print(f"  repo:   {USER_REPO}\n")
-if TEMP_TOKEN_ID is not None:
-    api(f"/panel/api/setting/apiTokens/delete/{TEMP_TOKEN_ID}", post=True)
 
 if not A.no_scan and not A.install and not A.dry_run and MODE_CHOICE != "install":
     if not INTERACTIVE:
