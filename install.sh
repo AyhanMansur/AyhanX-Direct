@@ -705,18 +705,20 @@ if CERT:
         elif not any(is_cf(i) for i in ips): warn(f"{CDN} is not proxied by Cloudflare (orange cloud is off) — CDN skipped."); CDN = ""
         else: info(f"{CDN} is behind Cloudflare")
 
-# =========================================================================== 3. configs (BRANDED, bold Unicode)
+# =========================================================================== 3. configs
 CATALOG = [
-    ("rv", f"{BRAND}⚡𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐕𝐢𝐬𝐢𝐨𝐧", None, "Reality Vision — fastest, main config"),
-    ("rx", f"{BRAND}🌀𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐗𝐇𝐓𝐓𝐏", None, "Reality XHTTP — padding"),
-    ("rg", f"{BRAND}🔷𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐠𝐑𝐏𝐂", None, "Reality gRPC"),
-    ("tv", f"{BRAND}🔐𝐓𝐋𝐒-𝐕𝐢𝐬𝐢𝐨𝐧", "tls", "TLS Vision + Fragment, IPv6"),
-    ("tx", f"{BRAND}🛰𝐓𝐋𝐒-𝐗𝐇𝐓𝐓𝐏", "tls", "TLS XHTTP, direct + CDN"),
-    ("ws", f"{BRAND}🌐𝐂𝐃𝐍-𝐖𝐒", "cdn", "Cloudflare WebSocket + clean IPs"),
-    ("hu", f"{BRAND}🔗𝐂𝐃𝐍-𝐇𝐓𝐓𝐏𝐔𝐩𝐠𝐫𝐚𝐝𝐞", "cdn", "Cloudflare HTTPUpgrade"),
-    ("hy", f"{BRAND}🚄𝐇𝐲𝐬𝐭𝐞𝐫𝐢𝐚𝟐", "tls", "Hysteria2 + Salamander (needs UDP)"),
-    ("pq", f"{BRAND}🧬𝐏𝐐-𝐒𝐮𝐝𝐨𝐤𝐮", None, "PQ Sudoku (beta, Xray 26)"),
-    ("ss", f"{BRAND}🛟𝐒𝐡𝐚𝐝𝐨𝐰𝐬𝐨𝐜𝐤𝐬-𝟐𝟎𝟐𝟐", None, "Shadowsocks-2022 backup"),
+    ("rv",  f"{BRAND}⚡𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐕𝐢𝐬𝐢𝐨𝐧", None, "Reality Vision — fastest, main config"),
+    ("rx",  f"{BRAND}🌀𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐗𝐇𝐓𝐓𝐏", None, "Reality XHTTP — padding"),
+    ("rg",  f"{BRAND}🔷𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐠𝐑𝐏𝐂", None, "Reality gRPC"),
+    ("tv",  f"{BRAND}🔐𝐓𝐋𝐒-𝐕𝐢𝐬𝐢𝐨𝐧", "tls", "TLS Vision + Fragment, IPv6"),
+    ("tx",  f"{BRAND}🛰𝐓𝐋𝐒-𝐗𝐇𝐓𝐓𝐏", "tls", "TLS XHTTP, direct + CDN"),
+    ("ws",  f"{BRAND}🌐𝐂𝐃𝐍-𝐖𝐒", "cdn", "Cloudflare WebSocket + clean IPs"),
+    ("hu",  f"{BRAND}🔗𝐂𝐃𝐍-𝐇𝐓𝐓𝐏𝐔𝐩𝐠𝐫𝐚𝐝𝐞", "cdn", "Cloudflare HTTPUpgrade"),
+    ("th",  f"{BRAND}🛡️𝐓𝐫𝐨𝐣𝐚𝐧-𝐇𝐔", "tls", "Trojan over HTTPUpgrade, CDN-capable"),
+    ("hy",  f"{BRAND}🚄𝐇𝐲𝐬𝐭𝐞𝐫𝐢𝐚𝟐", "tls", "Hysteria2 + Salamander (needs UDP)"),
+    ("pq",  f"{BRAND}🧬𝐏𝐐-𝐒𝐮𝐝𝐨𝐤𝐮", None, "PQ Sudoku — VLESS (beta, Xray 26)"),
+    ("tpq", f"{BRAND}🧬𝐓𝐫𝐨𝐣𝐚𝐧-𝐏𝐐", None, "Trojan + PQ Sudoku (beta, Xray 26)"),
+    ("ss",  f"{BRAND}🛟𝐒𝐡𝐚𝐝𝐨𝐰𝐬𝐨𝐜𝐤𝐬-𝟐𝟎𝟐𝟐", None, "Shadowsocks-2022 backup"),
 ]
 avail = [c for c in CATALOG if c[2] is None or (c[2] == "tls" and CERT) or (c[2] == "cdn" and CDN)]
 head("3/4  Which configs to add")
@@ -736,7 +738,7 @@ else:
 SEL = [c for c in avail if c[0] in sel_keys]
 if not SEL: die("Nothing selected.")
 CLEAN_N = 0
-if "ws" in sel_keys or "hu" in sel_keys or ("tx" in sel_keys and CDN):
+if "ws" in sel_keys or "hu" in sel_keys or "th" in sel_keys or ("tx" in sel_keys and CDN):
     CLEAN_N = int(A.clean) if A.clean is not None else int(re.sub(r"\D", "", ask(
         "How many Cloudflare clean-IP configs to add (0-30)", "20")) or 0)
     CLEAN_N = max(0, min(30, CLEAN_N))
@@ -767,13 +769,21 @@ for k in ("subPort", "webPort"):
 owner_tcp.setdefault(int(pport), "3x-ui panel")
 
 CF_HTTPS = [443, 2053, 2083, 2087, 2096, 8443]
-PREF = {"rv": [443, 2443, 3443, 6443, 7443], "rx": [8443, 2443, 3443, 5443, 6443], "rg": [4443, 5443, 7443, 9444],
-        "tv": [9443, 9444, 10444, 11444], "tx": [2087, 2053, 2083, 2096, 8443], "ws": [2053, 2083, 2087, 2096, 8443],
-        "hu": [2083, 2053, 2087, 2096, 8443], "hy": [443, 8443, 4443, 2053, 10443], "pq": [10443, 11443, 12443, 13443],
-        "ss": [8080, 8388, 18080, 28080]}
+PREF = {"rv":  [443, 2443, 3443, 6443, 7443],
+        "rx":  [8443, 2443, 3443, 5443, 6443],
+        "rg":  [4443, 5443, 7443, 9444],
+        "tv":  [9443, 9444, 10444, 11444],
+        "tx":  [2087, 2053, 2083, 2096, 8443],
+        "ws":  [2053, 2083, 2087, 2096, 8443],
+        "hu":  [2083, 2053, 2087, 2096, 8443],
+        "th":  [8443, 2096, 2087, 2083, 2053],
+        "hy":  [443, 8443, 4443, 2053, 10443],
+        "pq":  [10443, 11443, 12443, 13443],
+        "tpq": [11444, 12444, 13444, 14444],
+        "ss":  [8080, 8388, 18080, 28080]}
 UDP_ONLY = {"hy"}
 BOTH = {"ss"}
-CDN_KEYS = {"tx", "ws", "hu"}
+CDN_KEYS = {"tx", "ws", "hu", "th"}
 MODE = A.ports or ("auto" if not INTERACTIVE else "ask")
 
 def busy(pt, key):
@@ -851,7 +861,6 @@ sni = lambda i: GOOD_SNI[i % len(GOOD_SNI)]
 
 CLEAN = []
 if CLEAN_N and CDN:
-    # prefer a locally generated clean-ips.txt (from the scanner) over the remote list
     if os.path.exists("clean-ips.txt") and os.path.getsize("clean-ips.txt") > 0:
         lst = open("clean-ips.txt", "r", encoding="utf-8").read()
         info("using local clean-ips.txt (from scanner)")
@@ -859,8 +868,8 @@ if CLEAN_N and CDN:
         lst = sh(f"curl -fsSL -m10 {REPO_RAW}/clean-ips.txt") if REPO_RAW else ""
     cand = [l.split("#")[0].strip() for l in lst.splitlines() if l.split("#")[0].strip()]
     if not cand: cand = __FALLBACK_CLEAN__
-    cdn_port = next((PLAN[k]["port"] for k in ("ws", "hu", "tx") if k in PLAN and not PLAN[k].get("origin_rule")), None)
-    if not cdn_port and any(PLAN.get(k, {}).get("origin_rule") for k in ("ws", "hu", "tx")):
+    cdn_port = next((PLAN[k]["port"] for k in ("ws", "hu", "tx", "th") if k in PLAN and not PLAN[k].get("origin_rule")), None)
+    if not cdn_port and any(PLAN.get(k, {}).get("origin_rule") for k in ("ws", "hu", "tx", "th")):
         cdn_port = 443
     if cdn_port:
         def via_cf(a):
@@ -934,6 +943,13 @@ def hu_stream():
     PATHS["hu"] = "/" + hx(5)
     return tls_stream("httpupgrade", {"httpupgradeSettings": {"acceptProxyProtocol": False, "path": PATHS["hu"], "host": "",
                                                               "headers": {}}}, ["http/1.1"])
+def th_stream():
+    """Trojan over TLS + HTTPUpgrade (CDN-capable)."""
+    PATHS["th"] = "/" + hx(5)
+    return tls_stream("httpupgrade",
+                      {"httpupgradeSettings": {"acceptProxyProtocol": False,
+                                               "path": PATHS["th"], "host": "", "headers": {}}},
+                      ["http/1.1"])
 def tx_stream():
     x = XH(); PATHS["tx"] = x["path"]
     return tls_stream("xhttp", {"xhttpSettings": x}, ["h2", "http/1.1"])
@@ -943,38 +959,51 @@ def pq():
             {"network": "tcp", "security": "none", "externalProxy": [], **TCP,
              "finalmask": {"tcp": [{"type": "sudoku", "settings": {"password": hx(16), "ascii": "prefer_entropy",
                                                                     "paddingMin": 2, "paddingMax": 7}}]}})
+def tpq():
+    """Trojan over TCP + FinalMask Sudoku (post-quantum)."""
+    return ({"clients": []},
+            {"network": "tcp", "security": "none", "externalProxy": [], **TCP,
+             "finalmask": {"tcp": [{"type": "sudoku",
+                                    "settings": {"password": hx(16),
+                                                 "ascii": "prefer_entropy",
+                                                 "paddingMin": 2,
+                                                 "paddingMax": 7}}]}})
 BUILD = {
-    "rv": ("vless", lambda: (VL(), reality("tcp", sni(0), TCP))),
-    "rx": ("vless", lambda: (VL(), reality("xhttp", sni(1), {"xhttpSettings": XH()}))),
-    "rg": ("vless", lambda: (VL(), reality("grpc", sni(2), {"grpcSettings": {"serviceName": hx(4), "authority": "",
-                                                                             "multiMode": True}}))),
-    "tv": ("vless", lambda: (VL(), tls_stream("tcp", TCP, ["h2", "http/1.1"]))),
-    "tx": ("vless", lambda: (VL(), tx_stream())),
-    "ws": ("vless", lambda: (VL(), ws_stream())),
-    "hu": ("vless", lambda: (VL(), hu_stream())),
-    "hy": ("hysteria", lambda: ({"version": 2, "clients": []},
-                                {"network": "hysteria", "security": "tls", "externalProxy": [], "tlsSettings": tls(["h3"]),
-                                 "hysteriaSettings": {"version": 2, "udpIdleTimeout": 60,
-                                                      "masquerade": {"type": "proxy", "url": "https://www.bing.com",
-                                                                     "rewriteHost": True}},
-                                 "finalmask": {"udp": [{"type": "salamander", "settings": {"password": hx(16)}}],
-                                               "quicParams": {"congestion": "bbr"}}})),
-    "pq": ("vless", pq),
-    "ss": ("shadowsocks", lambda: ({"method": "2022-blake3-aes-256-gcm", "password": base64.b64encode(secrets.token_bytes(32)).decode(),
-                                    "network": "tcp,udp", "clients": [], "ivCheck": False},
-                                   {"network": "tcp", "security": "none", "externalProxy": [], **TCP})),
+    "rv":  ("vless", lambda: (VL(), reality("tcp", sni(0), TCP))),
+    "rx":  ("vless", lambda: (VL(), reality("xhttp", sni(1), {"xhttpSettings": XH()}))),
+    "rg":  ("vless", lambda: (VL(), reality("grpc", sni(2), {"grpcSettings": {"serviceName": hx(4), "authority": "",
+                                                                              "multiMode": True}}))),
+    "tv":  ("vless", lambda: (VL(), tls_stream("tcp", TCP, ["h2", "http/1.1"]))),
+    "tx":  ("vless", lambda: (VL(), tx_stream())),
+    "ws":  ("vless", lambda: (VL(), ws_stream())),
+    "hu":  ("vless", lambda: (VL(), hu_stream())),
+    "th":  ("trojan", lambda: ({"clients": []}, th_stream())),
+    "hy":  ("hysteria", lambda: ({"version": 2, "clients": []},
+                                 {"network": "hysteria", "security": "tls", "externalProxy": [], "tlsSettings": tls(["h3"]),
+                                  "hysteriaSettings": {"version": 2, "udpIdleTimeout": 60,
+                                                       "masquerade": {"type": "proxy", "url": "https://www.bing.com",
+                                                                      "rewriteHost": True}},
+                                  "finalmask": {"udp": [{"type": "salamander", "settings": {"password": hx(16)}}],
+                                                "quicParams": {"congestion": "bbr"}}})),
+    "pq":  ("vless", pq),
+    "tpq": ("trojan", tpq),
+    "ss":  ("shadowsocks", lambda: ({"method": "2022-blake3-aes-256-gcm", "password": base64.b64encode(secrets.token_bytes(32)).decode(),
+                                     "network": "tcp,udp", "clients": [], "ivCheck": False},
+                                    {"network": "tcp", "security": "none", "externalProxy": [], **TCP})),
 }
 REMARK = {
-    "rv": f"{BRAND}⚡𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐕𝐢𝐬𝐢𝐨𝐧",
-    "rx": f"{BRAND}🌀𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐗𝐇𝐓𝐓𝐏",
-    "rg": f"{BRAND}🔷𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐠𝐑𝐏𝐂",
-    "tv": f"{BRAND}🔐𝐓𝐋𝐒-𝐕𝐢𝐬𝐢𝐨𝐧",
-    "tx": f"{BRAND}🛰𝐓𝐋𝐒-𝐗𝐇𝐓𝐓𝐏",
-    "ws": f"{BRAND}🌐𝐂𝐃𝐍-𝐖𝐒",
-    "hu": f"{BRAND}🔗𝐂𝐃𝐍-𝐇𝐓𝐓𝐏𝐔𝐩𝐠𝐫𝐚𝐝𝐞",
-    "hy": f"{BRAND}🚄𝐇𝐲𝐬𝐭𝐞𝐫𝐢𝐚𝟐",
-    "pq": f"{BRAND}🧬𝐏𝐐-𝐒𝐮𝐝𝐨𝐤𝐮",
-    "ss": f"{BRAND}🛟𝐒𝐡𝐚𝐝𝐨𝐰𝐬𝐨𝐜𝐤𝐬-𝟐𝟎𝟐𝟐",
+    "rv":  f"{BRAND}⚡𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐕𝐢𝐬𝐢𝐨𝐧",
+    "rx":  f"{BRAND}🌀𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐗𝐇𝐓𝐓𝐏",
+    "rg":  f"{BRAND}🔷𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐠𝐑𝐏𝐂",
+    "tv":  f"{BRAND}🔐𝐓𝐋𝐒-𝐕𝐢𝐬𝐢𝐨𝐧",
+    "tx":  f"{BRAND}🛰𝐓𝐋𝐒-𝐗𝐇𝐓𝐓𝐏",
+    "ws":  f"{BRAND}🌐𝐂𝐃𝐍-𝐖𝐒",
+    "hu":  f"{BRAND}🔗𝐂𝐃𝐍-𝐇𝐓𝐓𝐏𝐔𝐩𝐠𝐫𝐚𝐝𝐞",
+    "th":  f"{BRAND}🛡️𝐓𝐫𝐨𝐣𝐚𝐧-𝐇𝐔",
+    "hy":  f"{BRAND}🚄𝐇𝐲𝐬𝐭𝐞𝐫𝐢𝐚𝟐",
+    "pq":  f"{BRAND}🧬𝐏𝐐-𝐒𝐮𝐝𝐨𝐤𝐮",
+    "tpq": f"{BRAND}🧬𝐓𝐫𝐨𝐣𝐚𝐧-𝐏𝐐",
+    "ss":  f"{BRAND}🛟𝐒𝐡𝐚𝐝𝐨𝐰𝐬𝐨𝐜𝐤𝐬-𝟐𝟎𝟐𝟐",
 }
 def cdn_host(name, addr, key):
     cp = PLAN[key].get("client_port", 0)
@@ -991,8 +1020,12 @@ def HOSTS(key):
         return h + ([cdn_host(f"{BRAND}🛰𝐂𝐃𝐍-𝐗𝐇𝐓𝐓𝐏-𝐅𝐫𝐚𝐠", CDN, "tx")] if CDN else [])
     if key == "ws": return [cdn_host(f"{BRAND}🌐𝐂𝐃𝐍-𝐖𝐒-𝐅𝐫𝐚𝐠", CDN, "ws")]
     if key == "hu": return [cdn_host(f"{BRAND}🔗𝐂𝐃𝐍-𝐇𝐔-𝐅𝐫𝐚𝐠", CDN, "hu")]
+    if key == "th":
+        h = [] if PLAN["th"].get("origin_rule") else [(f"{BRAND}🛡️𝐓𝐫𝐨𝐣𝐚𝐧-𝐇𝐔", ADDR, {"sni": DOMAIN, "hostHeader": DOMAIN})]
+        return h + ([cdn_host(f"{BRAND}☁️𝐓𝐫𝐨𝐣𝐚𝐧-𝐂𝐃𝐍", CDN, "th")] if CDN else [])
     if key == "hy": return [(f"{BRAND}🚄𝐇𝐲𝐬𝐭𝐞𝐫𝐢𝐚𝟐", ADDR, {"sni": DOMAIN})]
     if key == "pq": return [(f"{BRAND}🧬𝐏𝐐-𝐒𝐮𝐝𝐨𝐤𝐮", ADDR, {})]
+    if key == "tpq": return [(f"{BRAND}🧬𝐓𝐫𝐨𝐣𝐚𝐧-𝐏𝐐", ADDR, {})]
     if key == "ss": return [(f"{BRAND}🛟𝐒𝐡𝐚𝐝𝐨𝐰𝐬𝐨𝐜𝐤𝐬-𝟐𝟎𝟐𝟐", ADDR, {})]
     return []
 
@@ -1060,8 +1093,8 @@ if use_hosts and "{{HOST}}" not in tmpl: settings["remarkTemplate"] = "{{HOST}}"
 if not settings.get("subJsonEnable"): settings["subJsonEnable"] = True; chg = True
 if chg: info("panel settings:", api("/panel/api/setting/update", settings).get("msg"))
 
-clean_key = next((k for k in ("ws", "hu", "tx") if k in ADDED and not PLAN[k].get("origin_rule")), None) \
-            or next((k for k in ("ws", "hu", "tx") if k in ADDED), None)
+clean_key = next((k for k in ("ws", "hu", "tx", "th") if k in ADDED and not PLAN[k].get("origin_rule")), None) \
+            or next((k for k in ("ws", "hu", "tx", "th") if k in ADDED), None)
 n_links = 0
 for order, (key, iid) in enumerate(added):
     api(f"/panel/api/inbounds/{iid}/subSortIndex", {"subSortIndex": 100 + order})
@@ -1069,7 +1102,7 @@ for order, (key, iid) in enumerate(added):
     if key == clean_key and CLEAN:
         hosts += [cdn_host(f"{BRAND}🧊𝐂𝐥𝐞𝐚𝐧-{i:02d}", a, key) for i, a in enumerate(CLEAN, 1)]
     if not use_hosts:
-        hosts = [h for h in hosts if h[1] == CDN or h[1] in CLEAN] if key in ("ws", "hu") else []
+        hosts = [h for h in hosts if h[1] == CDN or h[1] in CLEAN] if key in ("ws", "hu", "th") else []
     for i, (rem, addr, extra) in enumerate(hosts):
         if not addr: continue
         r = api("/panel/api/hosts/add", {"inboundIds": [iid], "remark": rem, "hosts": [addr], "port": 0,
