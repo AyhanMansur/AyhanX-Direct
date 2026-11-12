@@ -44,9 +44,6 @@ USER_REPO="https://github.com/AyhanMansur/AyhanX-Direct"
 TMPPY=$(mktemp /tmp/xui-pro.XXXXXX.py)
 trap 'rm -f "$TMPPY"' EXIT
 cat > "$TMPPY" <<'PYEOF'
-# ═══════════════════════════════════════════════════════════════════════════
-#  IMPORTS
-# ═══════════════════════════════════════════════════════════════════════════
 import argparse, base64, glob, ipaddress, json, os, re, secrets, shutil
 import socket, string, subprocess, sys, time, platform, uuid, urllib.parse, random
 import concurrent.futures as cfut
@@ -91,10 +88,6 @@ BRAND      = "🧩👾𝐀𝐲𝐡𝐚𝐧𝐗-𝐃𝐢𝐫𝐞𝐜𝐭-"
 PRO_TITLE  = f"{B}{C}3x-ui Pro Configs  ·  add-only installer{N}"
 SCAN_TITLE = f"{B}{C}Proxy Scanner  ·  range / domain → link builder{N}"
 
-# ═══════════════════════════════════════════════════════════════════════════
-#  CLI
-# ═══════════════════════════════════════════════════════════════════════════
-REPO_RAW = os.environ.get("REPO_RAW", "")
 p = argparse.ArgumentParser()
 for a in ("--domain","--cdn","--configs","--email","--token","--api-key","--clean","--ports","--scan-limit"):
     p.add_argument(a)
@@ -116,26 +109,22 @@ def yes(q, default=True):
     return ask(q + (" (Y/n)" if default else " (y/N)"), "y" if default else "n").lower().startswith("y")
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  PART B — SCANNER + SELF-BOOTSTRAP (silent)
+#  SCANNER
 # ═══════════════════════════════════════════════════════════════════════════
-
 def _pipx_has(mod):
     try: return subprocess.run(["pipx","runpip",mod,"show",mod],
                                 capture_output=True, text=True, timeout=30).returncode == 0
     except Exception: return False
-
 def _pipx_install(mod):
     try: return subprocess.run(["pipx","install",mod],
                                 capture_output=True, text=True, timeout=300).returncode == 0
     except Exception: return False
-
 def ensure_requests():
     try:
         import requests  # noqa: F401
         return True
     except ImportError:
         pass
-
     def try_import_after():
         import importlib
         for q in list(sys.path):
@@ -144,7 +133,6 @@ def ensure_requests():
             import requests  # noqa: F401
             return True
         except ImportError: return False
-
     def add_pipx_venv_to_path(mod="requests"):
         home = os.path.expanduser("~")
         cands  = glob.glob(f"{home}/.local/pipx/venvs/{mod}/lib/python*/site-packages")
@@ -159,12 +147,10 @@ def ensure_requests():
         if cands:
             sys.path.insert(0, sorted(cands)[-1]); return True
         return False
-
     pipx = shutil.which("pipx")
     if pipx:
         if not _pipx_has("requests") and not _pipx_install("requests"): pass
         if add_pipx_venv_to_path("requests") and try_import_after(): return True
-
     for cmd in (["pip","install","--user","requests"],
                 [sys.executable,"-m","pip","install","--user","requests"]):
         try:
@@ -173,58 +159,46 @@ def ensure_requests():
                     if q not in sys.path: sys.path.append(q)
                 if try_import_after(): return True
         except Exception: pass
-
     for extra in ([], ["--break-system-packages"]):
         try:
             cmd = [sys.executable,"-m","pip","install"] + extra + ["requests"]
             if subprocess.run(cmd, capture_output=True, text=True, timeout=180).returncode == 0 \
                and try_import_after(): return True
         except Exception: pass
-
-    print(f"{R}  ✘{N} could not auto-install {CY}requests{N} "
-          f"({D}try: pipx install requests{N}) — falling back to curl")
+    print(f"{R}  ✘{N} could not auto-install {CY}requests{N} — falling back to curl")
     return False
 
-# ─────────────── scanner core ───────────────
 def scan_host(host):
-    p = '-n' if sys.platform.startswith('win') else '-c'
-    try: return subprocess.run(['ping',p,'1',host], capture_output=True, text=True, timeout=2).returncode == 0
+    param = '-n' if sys.platform.startswith('win') else '-c'
+    try: return subprocess.run(['ping',param,'1',host], capture_output=True, text=True, timeout=2).returncode == 0
     except Exception: return False
-
 def scan_network(network_str, limit=None):
     try:
         n = ip_network(network_str, strict=False)
         addrs = list(n.hosts())
         if limit is not None: addrs = addrs[:limit]
-        fam = "IPv6" if n.version == 6 else "IPv4"
-        print(f"{random.choice(colors)}🔍 Scanning {fam} {network_str} ({len(addrs)} addresses)...{ENDC}")
+        print(f"{random.choice(colors)}🔍 Scanning {'IPv6' if n.version==6 else 'IPv4'} {network_str} ({len(addrs)})...{ENDC}")
         a = []
         for ip in addrs:
-            if scan_host(str(ip)):
-                a.append(str(ip)); print(f"{OKGREEN}   ✅ {ip} is active{ENDC}")
+            if scan_host(str(ip)): a.append(str(ip)); print(f"{OKGREEN}   ✅ {ip}{ENDC}")
         return a, len(addrs)
     except Exception as e:
-        print(f"{FAIL}❌ Error in range {network_str}: {e}{ENDC}"); return [], 0
-
+        print(f"{FAIL}❌ {network_str}: {e}{ENDC}"); return [], 0
 def scan_domains(dl, limit=None):
     if limit is not None: dl = dl[:limit]
     print(f"{random.choice(colors)}🔍 Scanning {len(dl)} domains...{ENDC}")
     a = []
     for d in dl:
-        if scan_host(d): a.append(d); print(f"{OKGREEN}   ✅ {d} is active{ENDC}")
+        if scan_host(d): a.append(d); print(f"{OKGREEN}   ✅ {d}{ENDC}")
     return a, len(dl)
-
 def check_clean_ip(host, cdn_host, cdn_port, timeout=6, max_ms=1500):
-    """Return (ip, latency_ms) if `host` reaches Cloudflare via HTTP on cdn_port, else None."""
     ip = host
     if not re.match(r"^[\d.]+$", host):
         try:
             for _, _, _, _, sa in socket.getaddrinfo(host, None, socket.AF_INET):
                 ip = sa[0]; break
-        except Exception:
-            return None
-    if not re.match(r"^[\d.]+$", ip):
-        return None
+        except Exception: return None
+    if not re.match(r"^[\d.]+$", ip): return None
     r = sh(f"curl -s -o /dev/null -m{timeout} -w '%{{http_code}} %{{time_connect}}' "
            f"--resolve {cdn_host}:{cdn_port}:{ip} https://{cdn_host}:{cdn_port}/", timeout + 4)
     code, _, t = r.partition(" ")
@@ -234,100 +208,59 @@ def check_clean_ip(host, cdn_host, cdn_port, timeout=6, max_ms=1500):
     if code in ("200","204","301","302","403") and ms <= max_ms:
         return ip, ms
     return None
-
 def write_clean_ips(items, filename="clean-ips.txt"):
     try:
         with open(filename, "w", encoding="utf-8") as f:
-            f.write("# Cloudflare clean IPs — verified via HTTP connect\n")
-            f.write(f"# generated {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-            for ip, ms in items:
-                f.write(f"{ip}  # {ms}ms\n")
+            f.write("# Cloudflare clean IPs\n")
+            for ip, ms in items: f.write(f"{ip}  # {ms}ms\n")
         print(f"{OKGREEN}✅ wrote {len(items)} clean IPs → {os.path.abspath(filename)}{ENDC}")
     except Exception as e:
-        print(f"{WARNING}⚠️ could not write {filename}: {e}{ENDC}")
+        print(f"{WARNING}⚠️ {filename}: {e}{ENDC}")
 
-# ─────────────── proxy link parse / build ───────────────
 def parse_proxy_link(link):
     link = link.strip()
-    if not any(link.startswith(s+'://') for s in ['vless','vmess','trojan','ss','hysteria','hysteria2']):
-        raise ValueError("Unsupported scheme.")
     if link.startswith('vless://'): return parse_vless(link)
     if link.startswith('vmess://'): return parse_vmess(link)
     if link.startswith('trojan://'): return parse_trojan(link)
     if link.startswith('ss://'): return parse_shadowsocks(link)
     if link.startswith(('hysteria://','hysteria2://')): return parse_hysteria(link)
     raise ValueError("Unsupported scheme.")
-
 def parse_vless(link):
-    rest = link[8:]
-    if '@' not in rest: raise ValueError("Invalid vless")
-    ui, rest = rest.split('@',1)
+    rest = link[8:]; ui, rest = rest.split('@',1)
     pr = urllib.parse.urlparse('//'+rest); nl, q, fr = pr.netloc, pr.query, pr.fragment
-    if ':' in nl:
-        h, ps = nl.split(':',1)
-        try: pt = int(ps)
-        except: pt = 443
-    else: h, pt = nl, 443
+    h, _, ps = nl.partition(':'); pt = int(ps) if ps.isdigit() else 443
     P = urllib.parse.parse_qs(q, keep_blank_values=True)
     for k,v in P.items(): P[k] = v[-1] if v else ''
     return {'scheme':'vless','userinfo':ui,'host':h,'port':pt,'params':P,'fragment':fr,'raw':None}
-
 def parse_vmess(link):
-    b64 = link[8:]; b64 += '=' * (4 - len(b64) % 4)
-    try: d = json.loads(base64.b64decode(b64).decode('utf-8'))
-    except Exception as e: raise ValueError(f"Invalid vmess: {e}")
+    b64 = link[8:]; b64 += '=' * (-len(b64) % 4)
+    d = json.loads(base64.b64decode(b64).decode('utf-8'))
     h, pt = d.get('add',''), d.get('port',443)
     try: pt = int(pt)
     except: pt = 443
     return {'scheme':'vmess','userinfo':None,'host':h,'port':pt,'params':{},'fragment':'','raw':d}
-
 def parse_trojan(link):
-    rest = link[9:]
-    if '@' not in rest: raise ValueError("Invalid trojan")
-    ui, rest = rest.split('@',1)
+    rest = link[9:]; ui, rest = rest.split('@',1)
     pr = urllib.parse.urlparse('//'+rest); nl, q, fr = pr.netloc, pr.query, pr.fragment
-    if ':' in nl:
-        h, ps = nl.split(':',1)
-        try: pt = int(ps)
-        except: pt = 443
-    else: h, pt = nl, 443
+    h, _, ps = nl.partition(':'); pt = int(ps) if ps.isdigit() else 443
     P = urllib.parse.parse_qs(q, keep_blank_values=True)
     for k,v in P.items(): P[k] = v[-1] if v else ''
     return {'scheme':'trojan','userinfo':ui,'host':h,'port':pt,'params':P,'fragment':fr,'raw':None}
-
 def parse_shadowsocks(link):
     rest = link[5:]; fr = ''
     if '#' in rest: rest, fr = rest.split('#',1)
     if '@' in rest:
         ui, hp = rest.split('@',1)
-        m, pw = ui.split(':',1)
-        if ':' in hp:
-            h, ps = hp.rsplit(':',1)
-            try: pt = int(ps)
-            except: pt = 443
-        else: h, pt = hp, 443
-        ui = f"{m}:{pw}"; P = {}
+        h, _, ps = hp.rsplit(':',1); pt = int(ps) if ps.isdigit() else 443
     else:
-        b64 = rest; b64 += '=' * (4 - len(b64) % 4)
-        try: dec = base64.b64decode(b64).decode('utf-8')
-        except: raise ValueError("Invalid ss base64")
-        ui, hp = dec.split('@',1)
-        if ':' in hp:
-            h, ps = hp.rsplit(':',1)
-            try: pt = int(ps)
-            except: pt = 443
-        else: h, pt = hp, 443
-        P = {}
-    return {'scheme':'ss','userinfo':ui,'host':h,'port':pt,'params':P,'fragment':fr,'raw':None}
-
+        b64 = rest; b64 += '=' * (-len(b64) % 4)
+        ui, hp = base64.b64decode(b64).decode('utf-8').split('@',1)
+        h, _, ps = hp.rsplit(':',1); pt = int(ps) if ps.isdigit() else 443
+    return {'scheme':'ss','userinfo':ui,'host':h,'port':pt,'params':{},'fragment':fr,'raw':None}
 def parse_hysteria(link):
     se = link.find('://') + 3; rest = link[se:]
     pr = urllib.parse.urlparse('//'+rest); nl, q, fr = pr.netloc, pr.query, pr.fragment
-    if ':' in nl:
-        h, ps = nl.split(':',1)
-        try: pt = int(ps)
-        except: pt = 443
-    else: h, pt = nl, 443
+    h, _, ps = nl.partition(':'); pt = int(ps) if ps.isdigit() else 443
     P = urllib.parse.parse_qs(q, keep_blank_values=True)
     for k,v in P.items(): P[k] = v[-1] if v else ''
     return {'scheme':'hysteria','userinfo':None,'host':h,'port':pt,'params':P,'fragment':fr,'raw':None}
@@ -340,8 +273,7 @@ def build_vless(c,h):
     return u
 def build_vmess(c,h):
     d = c['raw'].copy(); d['add'] = h
-    js = json.dumps(d, separators=(',',':'), ensure_ascii=False)
-    return f"vmess://{base64.b64encode(js.encode()).decode()}"
+    return f"vmess://{base64.b64encode(json.dumps(d,separators=(',',':')).encode()).decode()}"
 def build_trojan(c,h):
     q = _qs(c['params']); u = f"trojan://{c['userinfo']}@{h}:{c['port']}"
     if q: u += f"?{q}"
@@ -357,13 +289,8 @@ def build_hysteria(c,h):
     if c['fragment']: u += f"#{c['fragment']}"
     return u
 def build_proxy_link(c,h):
-    s = c['scheme']
-    if s == 'vless': return build_vless(c,h)
-    if s == 'vmess': return build_vmess(c,h)
-    if s == 'trojan': return build_trojan(c,h)
-    if s == 'ss': return build_shadowsocks(c,h)
-    if s == 'hysteria': return build_hysteria(c,h)
-    raise ValueError(f"Unknown scheme: {s}")
+    return {'vless':build_vless,'vmess':build_vmess,'trojan':build_trojan,
+            'ss':build_shadowsocks,'hysteria':build_hysteria}[c['scheme']](c,h)
 
 def get_cached_list(url, cache_file):
     use_requests = ensure_requests()
@@ -372,10 +299,9 @@ def get_cached_list(url, cache_file):
             content = open(cache_file, 'r', encoding='utf-8').read()
             items = [l.strip() for l in content.splitlines() if l.strip() and not l.startswith('#')]
             if items:
-                print(f"{OKGREEN}✅ Loaded {len(items)} items from cache ({cache_file}).{ENDC}")
+                print(f"{OKGREEN}✅ Loaded {len(items)} items from cache.{ENDC}")
                 return items
-        except Exception as e:
-            print(f"{WARNING}⚠️ cache read failed: {e} — downloading fresh{ENDC}")
+        except Exception: pass
     print(f"{LITBU}📡 Downloading list...{ENDC}")
     content = ""
     if use_requests:
@@ -383,16 +309,13 @@ def get_cached_list(url, cache_file):
         try:
             r = requests.get(url, timeout=15); r.raise_for_status(); content = r.text
         except Exception as e:
-            print(f"{WARNING}⚠️ requests failed: {e} — trying curl{ENDC}")
-    if not content:
-        content = sh(f"curl -fsSL -m 20 {url}")
-    if not content:
-        print(f"{FAIL}❌ Download failed and no cache exists.{ENDC}"); sys.exit(1)
+            print(f"{WARNING}⚠️ {e} — trying curl{ENDC}")
+    if not content: content = sh(f"curl -fsSL -m 20 {url}")
+    if not content: die("download failed")
     open(cache_file, 'w', encoding='utf-8').write(content)
     items = [l.strip() for l in content.splitlines() if l.strip() and not l.startswith('#')]
-    if not items:
-        print(f"{FAIL}❌ Downloaded file has no items.{ENDC}"); sys.exit(1)
-    print(f"{OKGREEN}✅ Cached {len(items)} items → {cache_file}.{ENDC}")
+    if not items: die("no items in downloaded file")
+    print(f"{OKGREEN}✅ Cached {len(items)} items.{ENDC}")
     return items
 
 def copy_to_clipboard(text):
@@ -407,127 +330,91 @@ def copy_to_clipboard(text):
             subprocess.run(['pbcopy'], input=text, text=True, check=False)
         print(f"{OKGREEN}✅ Copied to clipboard.{ENDC}")
     except Exception as e:
-        print(f"{WARNING}⚠️ Clipboard failed: {e}{ENDC}")
+        print(f"{WARNING}⚠️ Clipboard: {e}{ENDC}")
 
 def run_scanner(default_template=None):
     print(f"{B}{C}{BANNER}{N}")
     print(f"{D}        {SCAN_TITLE}{N}")
     print(f"{D}        {USER_REPO}{N}\n")
-    start = ask(f"{CYAN}❓ Start scan? [Y/n]{ENDC}", "y").strip().lower()
-    if start == 'n': print(f"{YELLOW}🚫 Cancelled.{ENDC}"); return
+    if ask(f"{CYAN}❓ Start scan? [Y/n]{ENDC}", "y").lower() == 'n':
+        print(f"{YELLOW}🚫 Cancelled.{ENDC}"); return
     if default_template:
-        print(f"{CYAN}✏️  Template from install. Enter = accept.{ENDC}")
-        print(f"{D}   {default_template[:120]}{'…' if len(default_template)>120 else ''}{N}")
-        template = ask(f"{YELLOW}➜ {ENDC}", default_template).strip()
+        template = ask(f"{YELLOW}➜ template (Enter = from install){ENDC}", default_template).strip()
     else:
-        print(f"{CYAN}✏️  Paste proxy link template (vless/vmess/trojan/ss/hysteria). Enter = skip.{ENDC}")
-        template = ask(f"{YELLOW}➜ {ENDC}", "").strip()
+        template = ask(f"{YELLOW}➜ proxy link template (Enter = skip){ENDC}", "").strip()
     pc = None
     if template:
-        try: pc = parse_proxy_link(template); print(f"{OKGREEN}✅ Scheme: {pc['scheme']}{ENDC}")
-        except Exception as e: print(f"{WARNING}⚠️ Parse failed: {e}{ENDC}")
-
-    ch = ask(f"{CYAN}❓ 1 = IPv4 ranges, 2 = IPv6 ranges, 3 = domains{ENDC}", "1").strip()
-    while ch not in ('1','2','3'):
-        ch = ask(f"{CYAN}❓ 1 = IPv4 ranges, 2 = IPv6 ranges, 3 = domains{ENDC}", "1").strip()
-
-    RANGE_DIR = ("https://raw.githubusercontent.com/AyhanMansur/AyhanX-Fredom-Scanner/refs/heads/main/"
-                 "%F0%9D%94%B8%F0%9D%95%AA%F0%9D%95%99%F0%9D%95%92%F0%9D%95%9F%F0%9D%95%8F-%F0%9D%94%BD"
-                 "%F0%9D%95%A3%F0%9D%95%96%F0%9D%95%95%F0%9D%95%A0%F0%9D%95%9E-%F0%9D%95%8A%F0%9D%95%94"
-                 "%F0%9D%95%92%F0%9D%95%9F%F0%9D%95%9F%F0%9D%95%96%F0%9D%95%A3-%F0%9F%A7%91%E2%80%8D"
-                 "%F0%9F%92%BB%F0%9F%8C%BF")
-
+        try: pc = parse_proxy_link(template); print(f"{OKGREEN}✅ {pc['scheme']}{ENDC}")
+        except Exception as e: print(f"{WARNING}⚠️ {e}{ENDC}")
+    ch = ask(f"{CYAN}❓ 1=IPv4, 2=IPv6, 3=domains{ENDC}", "1").strip()
+    while ch not in ('1','2','3'): ch = ask(f"{CYAN}❓ 1=IPv4, 2=IPv6, 3=domains{ENDC}", "1").strip()
+    RD = ("https://raw.githubusercontent.com/AyhanMansur/AyhanX-Fredom-Scanner/refs/heads/main/"
+          "%F0%9D%94%B8%F0%9D%95%AA%F0%9D%95%99%F0%9D%95%92%F0%9D%95%9F%F0%9D%95%8F-%F0%9D%94%BD"
+          "%F0%9D%95%A3%F0%9D%95%96%F0%9D%95%95%F0%9D%95%A0%F0%9D%95%9E-%F0%9D%95%8A%F0%9D%95%94"
+          "%F0%9D%95%92%F0%9D%95%9F%F0%9D%95%9F%F0%9D%95%96%F0%9D%95%A3-%F0%9F%A7%91%E2%80%8D"
+          "%F0%9F%92%BB%F0%9F%8C%BF")
     if ch == '3':
-        url   = "https://raw.githubusercontent.com/AyhanMansur/AyhanX-Fredom-Scanner/refs/heads/main/domains.txt"
-        cache = "domains_cache.txt"
-        typ   = "domains"
+        url, cache = "https://raw.githubusercontent.com/AyhanMansur/AyhanX-Fredom-Scanner/refs/heads/main/domains.txt", "domains_cache.txt"
     elif ch == '2':
-        url   = RANGE_DIR + "/IPV6.Range.txt"
-        cache = "ranges_v6_cache.txt"
-        typ   = "IPv6 ranges"
+        url, cache = RD+"/IPV6.Range.txt", "ranges_v6_cache.txt"
     else:
-        url   = RANGE_DIR + "/IPV4.Range.txt"
-        cache = "ranges_v4_cache.txt"
-        typ   = "IPv4 ranges"
-
+        url, cache = RD+"/IPV4.Range.txt", "ranges_v4_cache.txt"
     items = get_cached_list(url, cache)
-    if A.scan_limit is not None: li = str(A.scan_limit)
-    else: li = ask(f"{CYAN}🔢 How many items? (Enter = all){ENDC}", "")
+    li = str(A.scan_limit) if A.scan_limit is not None else ask(f"{CYAN}🔢 Limit (Enter = all){ENDC}", "")
     lim = None
     if li:
         try:
             lim = int(li)
             if lim <= 0: raise ValueError
-        except ValueError: print(f"{WARNING}⚠️ invalid number — scanning all{ENDC}"); lim = None
-
+        except ValueError: lim = None
     print(f"{LITBU}🚀 Scanning...{ENDC}\n")
     all_a, tot = [], 0
-    if ch == '3':
-        all_a, tot = scan_domains(items, lim)
+    if ch == '3': all_a, tot = scan_domains(items, lim)
     else:
         rem = lim
         for r in items:
             if rem is not None and rem <= 0: break
             a, s = scan_network(r, rem); all_a.extend(a); tot += s
             if rem is not None: rem -= s
-
     print(f"\n{BOLD}{OKGREEN}📊 Summary:{ENDC}")
-    print(f"{CYAN}   ➤ scanned: {tot}{ENDC}")
-    print(f"{OKGREEN}   ➤ active:  {len(all_a)}{ENDC}")
-    if all_a:
-        print(f"\n{YELLOW}📝 Active hosts:{ENDC}")
-        for it in all_a: print(f"   {OKGREEN}► {it}{ENDC}")
-    else:
-        print(f"{WARNING}⚠️ no active hosts{ENDC}")
-
-    # ── auto clean-IP verification (only if we have a CDN target) ─────────────
+    print(f"   scanned {tot}, active {len(all_a)}")
+    for it in all_a: print(f"   {OKGREEN}► {it}{ENDC}")
     cdn_host = A.cdn or A.domain or ""
-    cdn_port = 443
     if all_a and cdn_host:
-        print(f"\n{LITBU}🧪 verifying {len(all_a)} active hosts against {cdn_host}:{cdn_port} …{ENDC}")
+        print(f"\n{LITBU}🧪 verifying against {cdn_host} …{ENDC}")
         clean = []
         with cfut.ThreadPoolExecutor(16) as ex:
-            futs = {ex.submit(check_clean_ip, h, cdn_host, cdn_port): h for h in all_a}
+            futs = {ex.submit(check_clean_ip, h, cdn_host, 443): h for h in all_a}
             for fut in cfut.as_completed(futs):
                 r = fut.result()
-                if r:
-                    clean.append(r)
-                    print(f"{OKGREEN}   ✔ {r[0]}  ({r[1]}ms){ENDC}")
+                if r: clean.append(r); print(f"{OKGREEN}   ✔ {r[0]} ({r[1]}ms){ENDC}")
         clean.sort(key=lambda t: t[1])
-        if clean:
-            write_clean_ips(clean, "clean-ips.txt")
-        else:
-            print(f"{WARNING}⚠️ none of the active hosts answered as Cloudflare on {cdn_host}:{cdn_port}{ENDC}")
-    elif all_a and not cdn_host:
-        print(f"{D}   · no --cdn/--domain set, skipping clean-IP verification{N}")
-
-    # ── proxy link generation ────────────────────────────────────────────────
+        if clean: write_clean_ips(clean, "clean-ips.txt")
     gen = []
     if pc and all_a:
-        print(f"\n{LITBU}📦 Generating {pc['scheme']} links...{ENDC}")
         for h in all_a:
             nl = build_proxy_link(pc, h); gen.append(nl); print(f"{OKGREEN}   ➜ {nl}{ENDC}")
-    if ask(f"{CYAN}📋 Copy results? [y/N]{ENDC}", "n").strip().lower() in ('y','yes'):
+    if ask(f"{CYAN}📋 Copy? [y/N]{ENDC}", "n").lower() in ('y','yes'):
         copy_to_clipboard("\n".join(gen) if gen else "\n".join(all_a))
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  MODE SELECTION
 # ═══════════════════════════════════════════════════════════════════════════
+clear_screen()
+
 print(f"{B}{C}{BANNER}{N}")
 print(f"{D}        {PRO_TITLE}  ·  {SCAN_TITLE}{N}")
 print(f"{D}        {USER_REPO}{N}\n")
 
 if A.scan:
-    clear_screen()
     run_scanner(); sys.exit(0)
 
 MODE_CHOICE = "install"
 if INTERACTIVE and not A.install:
     print(f"{B}What do you want to do?{N}")
-    print(f"  {B}1{N}) {G}Install 3x-ui Pro Configs{N}   {D}(add configs to the panel; then optionally scan){N}")
-    print(f"  {B}2{N}) {C}Run the Proxy Scanner only{N}   {D}(no panel changes){N}")
-    print(f"  {B}3{N}) {Y}Both{N}                         {D}(install, then run the scanner){N}")
-    print(f"  {D}Press Enter for 1 (install).{N}")
+    print(f"  {B}1{N}) {G}Install 3x-ui Pro Configs{N}")
+    print(f"  {B}2{N}) {C}Run the Proxy Scanner only{N}")
+    print(f"  {B}3{N}) {Y}Both{N}")
     mc = ask("Choice", "1").strip().lower()
     MODE_CHOICE = {"2":"scan","3":"both","1":"install"}.get(mc,"install")
 if MODE_CHOICE == "scan":
@@ -650,83 +537,79 @@ def find_cert(d):
 
 def issue_cert(d):
     if sh("ss -H -tln 'sport = :80'"):
-        warn("Port 80 is busy — cannot issue a certificate automatically."); return None, None
+        warn("Port 80 busy — cannot issue cert."); return None, None
     acme = os.path.expanduser("~/.acme.sh/acme.sh")
-    if not os.path.exists(acme):
-        sh("curl -s https://get.acme.sh | sh -s email=admin@" + d, 180)
-    if not os.path.exists(acme):
-        warn("acme.sh could not be installed."); return None, None
+    if not os.path.exists(acme): sh("curl -s https://get.acme.sh | sh -s email=admin@" + d, 180)
+    if not os.path.exists(acme): warn("acme.sh install failed."); return None, None
     sh(f"{acme} --set-default-ca --server letsencrypt", 60)
     out = sh(f"{acme} --issue -d {d} --standalone --httpport 80 --keylength ec-256 --force", 240)
     os.makedirs(f"/root/cert/{d}", exist_ok=True)
     sh(f"{acme} --install-cert -d {d} --ecc --fullchain-file /root/cert/{d}/fullchain.pem "
        f"--key-file /root/cert/{d}/privkey.pem --reloadcmd 'x-ui restart'", 60)
     if os.path.exists(f"/root/cert/{d}/fullchain.pem"):
-        info(f"certificate issued for {d}"); return f"/root/cert/{d}/fullchain.pem", f"/root/cert/{d}/privkey.pem"
-    warn("certificate issue failed:", out[-200:]); return None, None
+        info(f"cert issued for {d}"); return f"/root/cert/{d}/fullchain.pem", f"/root/cert/{d}/privkey.pem"
+    warn("cert failed:", out[-200:]); return None, None
 
 # =========================================================================== 1. domain
 head("1/4  Your domain (direct, Cloudflare grey cloud)")
-print(f"  {D}Used for TLS configs and Hysteria2. Must point straight to this server ({PUB4}).{N}")
+print(f"  {D}Used for TLS / Hysteria2. Must point straight to this server ({PUB4}).{N}")
 guess = A.domain or settings.get("webDomain") or settings.get("subDomain") or (phost if re.search(r"[a-z]", phost) else "")
 if not guess:
     for d in glob.glob("/root/cert/*/fullchain.pem"):
         guess = d.split("/")[3]; break
-DOMAIN = (A.domain if A.domain is not None else ask("Domain (Enter = none, only REALITY configs)", guess)).strip().lower()
+DOMAIN = (A.domain if A.domain is not None else ask("Domain (Enter = none, only REALITY)", guess)).strip().lower()
 CERT = KEY = None
 if DOMAIN:
     ips = ips_of(DOMAIN)
-    if not ips:
-        warn(f"{DOMAIN} does not resolve. Fix DNS, then run again."); DOMAIN = ""
+    if not ips: warn(f"{DOMAIN} does not resolve."); DOMAIN = ""
     elif any(is_cf(i) for i in ips):
-        warn(f"{DOMAIN} is behind Cloudflare (orange). It must be DNS-only (grey) for direct configs.")
-        warn("Turn the proxy off for it in Cloudflare, or use it as your CDN domain instead.")
-        DOMAIN = ""
+        warn(f"{DOMAIN} is orange-clouded — must be grey."); DOMAIN = ""
     else:
         if PUB4 not in ips and (not PUB6 or PUB6 not in ips):
-            warn(f"{DOMAIN} points to {', '.join(ips)}, not to this server ({PUB4}).")
+            warn(f"{DOMAIN} → {', '.join(ips)}, not to this server ({PUB4}).")
         CERT, KEY = find_cert(DOMAIN)
-        if CERT: info(f"certificate found: {CERT}")
-        elif yes(f"No valid certificate for {DOMAIN}. Issue one now with Let's Encrypt?", True):
+        if CERT: info(f"cert: {CERT}")
+        elif yes(f"No cert for {DOMAIN}. Issue one?", True):
             CERT, KEY = issue_cert(DOMAIN)
-        if not CERT:
-            warn("No certificate — TLS, CDN and Hysteria2 configs will be skipped.")
+        if not CERT: warn("No cert — TLS/CDN/Hysteria2 skipped.")
 ADDR = DOMAIN or PUB4
 
-# =========================================================================== 2. CDN domain
+# =========================================================================== 2. CDN
 CDN = ""
 if CERT:
     head("2/4  CDN domain (Cloudflare orange cloud)")
-    print(f"  {D}A subdomain proxied by Cloudflare to this server, SSL/TLS mode = Full. Enter = skip CDN.{N}")
-    CDN = (A.cdn if A.cdn is not None else ask("CDN domain", "")).strip().lower()
+    CDN = (A.cdn if A.cdn is not None else ask("CDN domain (Enter = skip)", "")).strip().lower()
     if CDN:
         ips = ips_of(CDN)
-        if not ips: warn(f"{CDN} does not resolve — CDN skipped."); CDN = ""
-        elif not any(is_cf(i) for i in ips): warn(f"{CDN} is not proxied by Cloudflare (orange cloud is off) — CDN skipped."); CDN = ""
+        if not ips: warn(f"{CDN} does not resolve."); CDN = ""
+        elif not any(is_cf(i) for i in ips): warn(f"{CDN} not proxied."); CDN = ""
         else: info(f"{CDN} is behind Cloudflare")
 
 # =========================================================================== 3. configs
 CATALOG = [
-    ("rv",  f"{BRAND}⚡𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐕𝐢𝐬𝐢𝐨𝐧", None, "Reality Vision — fastest, main config"),
-    ("rx",  f"{BRAND}🌀𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐗𝐇𝐓𝐓𝐏", None, "Reality XHTTP — padding"),
+    ("rv",  f"{BRAND}⚡𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐕𝐢𝐬𝐢𝐨𝐧", None, "Reality Vision — main config"),
+    ("rx",  f"{BRAND}🌀𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐗𝐇𝐓𝐓𝐏", None, "Reality XHTTP"),
     ("rg",  f"{BRAND}🔷𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐠𝐑𝐏𝐂", None, "Reality gRPC"),
-    ("tv",  f"{BRAND}🔐𝐓𝐋𝐒-𝐕𝐢𝐬𝐢𝐨𝐧", "tls", "TLS Vision + Fragment, IPv6"),
-    ("tx",  f"{BRAND}🛰𝐓𝐋𝐒-𝐗𝐇𝐓𝐓𝐏", "tls", "TLS XHTTP, direct + CDN"),
-    ("ws",  f"{BRAND}🌐𝐂𝐃𝐍-𝐖𝐒", "cdn", "Cloudflare WebSocket + clean IPs"),
-    ("hu",  f"{BRAND}🔗𝐂𝐃𝐍-𝐇𝐓𝐓𝐏𝐔𝐩𝐠𝐫𝐚𝐝𝐞", "cdn", "Cloudflare HTTPUpgrade"),
-    ("th",  f"{BRAND}🛡️𝐓𝐫𝐨𝐣𝐚𝐧-𝐇𝐔", "tls", "Trojan over HTTPUpgrade, CDN-capable"),
-    ("hy",  f"{BRAND}🚄𝐇𝐲𝐬𝐭𝐞𝐫𝐢𝐚𝟐", "tls", "Hysteria2 + Salamander (needs UDP)"),
-    ("pq",  f"{BRAND}🧬𝐏𝐐-𝐒𝐮𝐝𝐨𝐤𝐮", None, "PQ Sudoku — VLESS (beta, Xray 26)"),
-    ("tpq", f"{BRAND}🧬𝐓𝐫𝐨𝐣𝐚𝐧-𝐏𝐐", None, "Trojan + PQ Sudoku (beta, Xray 26)"),
-    ("ss",  f"{BRAND}🛟𝐒𝐡𝐚𝐝𝐨𝐰𝐬𝐨𝐜𝐤𝐬-𝟐𝟎𝟐𝟐", None, "Shadowsocks-2022 backup"),
+    ("tv",  f"{BRAND}🔐𝐓𝐋𝐒-𝐕𝐢𝐬𝐢𝐨𝐧", "tls", "TLS Vision + Fragment / IPv6"),
+    ("tx",  f"{BRAND}🛰𝐓𝐋𝐒-𝐗𝐇𝐓𝐓𝐏", "tls", "TLS XHTTP direct + CDN"),
+    ("ws",  f"{BRAND}🌐𝐂𝐃𝐍-𝐖𝐒", "cdn", "Cloudflare WebSocket + clean IPs (VLESS)"),
+    ("hu",  f"{BRAND}🔗𝐂𝐃𝐍-𝐇𝐓𝐓𝐏𝐔𝐩𝐠𝐫𝐚𝐝𝐞", "cdn", "Cloudflare HTTPUpgrade (VLESS)"),
+    ("th",  f"{BRAND}🛡️𝐓𝐫𝐨𝐣𝐚𝐧-𝐇𝐔", "tls", "Trojan + TLS + HTTPUpgrade"),
+    # ── NEW CDN Trojan variants ──────────────────────────────────────────
+    ("tcx", f"{BRAND}🛡️𝐓𝐫𝐨𝐣𝐚𝐧-𝐂𝐃𝐍-𝐗𝐇𝐓𝐓𝐏", "cdn", "Trojan + TLS + XHTTP over CDN"),
+    ("tcw", f"{BRAND}🛡️𝐓𝐫𝐨𝐣𝐚𝐧-𝐂𝐃𝐍-𝐖𝐒",   "cdn", "Trojan + TLS + WS over CDN"),
+    ("tch", f"{BRAND}🛡️𝐓𝐫𝐨𝐣𝐚𝐧-𝐂𝐃𝐍-𝐇𝐔",   "cdn", "Trojan + TLS + HTTPUpgrade over CDN"),
+    ("hy",  f"{BRAND}🚄𝐇𝐲𝐬𝐭𝐞𝐫𝐢𝐚𝟐", "tls", "Hysteria2 + Salamander"),
+    ("pq",  f"{BRAND}🧬𝐏𝐐-𝐒𝐮𝐝𝐨𝐤𝐮", None, "PQ Sudoku VLESS (Xray 26)"),
+    ("tpq", f"{BRAND}🧬𝐓𝐫𝐨𝐣𝐚𝐧-𝐏𝐐", None, "Trojan + PQ Sudoku (Xray 26)"),
+    ("ss",  f"{BRAND}🛟𝐒𝐡𝐚𝐝𝐨𝐰𝐬𝐨𝐜𝐤𝐬-𝟐𝟎𝟐𝟐", None, "Shadowsocks-2022"),
 ]
 avail = [c for c in CATALOG if c[2] is None or (c[2] == "tls" and CERT) or (c[2] == "cdn" and CDN)]
 head("3/4  Which configs to add")
 for n, (k, name, _, desc) in enumerate(avail, 1):
     print(f"  {B}{n:2d}{N}) {name:52s} {D}{desc}{N}")
 skipped = [c[1] for c in CATALOG if c not in avail]
-if skipped:
-    print(f"  {D}not available (no domain/cert/CDN): {', '.join(skipped)}{N}")
+if skipped: print(f"  {D}not available: {', '.join(skipped)}{N}")
 if A.configs:
     sel_keys = [c[0] for c in avail] if A.configs.strip() == "all" else [x.strip() for x in A.configs.split(",")]
 else:
@@ -734,13 +617,14 @@ else:
     if ans.strip().lower() == "all": sel_keys = [c[0] for c in avail]
     else:
         idx = {int(x) for x in re.findall(r"\d+", ans)}
-        sel_keys = [avail[i - 1][0] for i in sorted(idx) if 1 <= i <= len(avail)]
+        sel_keys = [avail[i-1][0] for i in sorted(idx) if 1 <= i <= len(avail)]
 SEL = [c for c in avail if c[0] in sel_keys]
 if not SEL: die("Nothing selected.")
 CLEAN_N = 0
-if "ws" in sel_keys or "hu" in sel_keys or "th" in sel_keys or ("tx" in sel_keys and CDN):
-    CLEAN_N = int(A.clean) if A.clean is not None else int(re.sub(r"\D", "", ask(
-        "How many Cloudflare clean-IP configs to add (0-30)", "20")) or 0)
+if "ws" in sel_keys or "hu" in sel_keys or "th" in sel_keys or "tcx" in sel_keys \
+   or "tcw" in sel_keys or "tch" in sel_keys or ("tx" in sel_keys and CDN):
+    CLEAN_N = int(A.clean) if A.clean is not None else int(re.sub(r"\D","", ask(
+        "How many Cloudflare clean-IP configs (0-30)", "20")) or 0)
     CLEAN_N = max(0, min(30, CLEAN_N))
 
 # =========================================================================== ports
@@ -763,27 +647,32 @@ for flag, dct in (("t", owner_tcp), ("u", owner_udp)):
         m = re.search(r":(\d+)$", f[3])
         if m and int(m.group(1)) not in dct:
             pm = re.search(r'\(\("([^"]+)"', l)
-            dct[int(m.group(1))] = f"process '{pm.group(1) if pm else '?'}'"
+            dct[int(m.group(1))] = pm.group(1) if pm else "?"
 for k in ("subPort", "webPort"):
     if settings.get(k): owner_tcp.setdefault(int(settings[k]), "3x-ui panel/subscription")
 owner_tcp.setdefault(int(pport), "3x-ui panel")
 
 CF_HTTPS = [443, 2053, 2083, 2087, 2096, 8443]
-PREF = {"rv":  [443, 2443, 3443, 6443, 7443],
-        "rx":  [8443, 2443, 3443, 5443, 6443],
-        "rg":  [4443, 5443, 7443, 9444],
-        "tv":  [9443, 9444, 10444, 11444],
-        "tx":  [2087, 2053, 2083, 2096, 8443],
-        "ws":  [2053, 2083, 2087, 2096, 8443],
-        "hu":  [2083, 2053, 2087, 2096, 8443],
-        "th":  [8443, 2096, 2087, 2083, 2053],
-        "hy":  [443, 8443, 4443, 2053, 10443],
-        "pq":  [10443, 11443, 12443, 13443],
-        "tpq": [11444, 12444, 13444, 14444],
-        "ss":  [8080, 8388, 18080, 28080]}
+PREF = {
+    "rv":  [443, 2443, 3443, 6443, 7443],
+    "rx":  [8443, 2443, 3443, 5443, 6443],
+    "rg":  [4443, 5443, 7443, 9444],
+    "tv":  [9443, 9444, 10444, 11444],
+    "tx":  [2087, 2053, 2083, 2096, 8443],
+    "ws":  [2053, 2083, 2087, 2096, 8443],
+    "hu":  [2083, 2053, 2087, 2096, 8443],
+    "th":  [8443, 2096, 2087, 2083, 2053],
+    # CDN-only Trojan variants prefer Cloudflare HTTPS ports
+    "tcx": [2053, 2083, 2087, 2096, 8443, 443],
+    "tcw": [2053, 2083, 2087, 2096, 8443, 443],
+    "tch": [2083, 2053, 2087, 2096, 8443, 443],
+    "hy":  [443, 8443, 4443, 2053, 10443],
+    "pq":  [10443, 11443, 12443, 13443],
+    "tpq": [11444, 12444, 13444, 14444],
+    "ss":  [8080, 8388, 18080, 28080]}
 UDP_ONLY = {"hy"}
 BOTH = {"ss"}
-CDN_KEYS = {"tx", "ws", "hu", "th"}
+CDN_KEYS = {"tx", "ws", "hu", "th", "tcx", "tcw", "tch"}
 MODE = A.ports or ("auto" if not INTERACTIVE else "ask")
 
 def busy(pt, key):
@@ -803,26 +692,20 @@ def free_from(lst, key):
 head("4/4  Ports")
 PLAN = {}
 for key, name, _, _ in SEL:
-    want = PREF[key][0]
-    who = busy(want, key)
+    want = PREF[key][0]; who = busy(want, key)
     if not who:
         PLAN[key] = {"port": want, "client_port": 0}; claim(want, key)
-        print(f"  {name:52s} port {want}{'/udp' if key in UDP_ONLY else ''}")
-        continue
+        print(f"  {name:52s} port {want}{'/udp' if key in UDP_ONLY else ''}"); continue
     alt = free_from(PREF[key], key)
     cdn_note = key in CDN_KEYS and (alt is None or alt not in CF_HTTPS)
-    print(f"  {Y}{name:52s} port {want} is used by {who}{N}")
-    if key in CDN_KEYS and alt in CF_HTTPS: hint = f"Enter = use {alt} (a Cloudflare port)"
-    elif key in CDN_KEYS: hint = "all Cloudflare ports busy: o = Origin-Rule mode, s = skip"
-    else: hint = f"Enter = use {alt}"
+    print(f"  {Y}{name:52s} port {want} used by {who}{N}")
+    if key in CDN_KEYS and alt in CF_HTTPS: hint = f"Enter = {alt} (CF port)"
+    elif key in CDN_KEYS: hint = "all CF busy: o = Origin-Rule, s = skip"
+    else: hint = f"Enter = {alt}"
     if MODE == "auto":
         choice = "" if alt and not cdn_note else "s"
     else:
-        print(f"    {D}Two inbounds can never share one port. Options:{N}")
-        print(f"    {D}  Enter  use the next free port{'' if not cdn_note else ' (not possible here)'}{N}")
-        print(f"    {D}  <num>  type your own port{N}")
-        if key in CDN_KEYS: print(f"    {D}  o      Origin-Rule mode: clients use Cloudflare port 443{N}")
-        print(f"    {D}  s      skip this config{N}")
+        print(f"    {D}  Enter = next free, <num> = custom, o = Origin-Rule, s = skip{N}")
         choice = ask(f"    {hint}", "")
     choice = choice.strip().lower()
     if choice == "s" or (choice == "" and (alt is None or cdn_note)):
@@ -830,46 +713,43 @@ for key, name, _, _ in SEL:
     if choice == "o" and key in CDN_KEYS:
         pt = free_from(range(30000, 60000, 11), "x")
         PLAN[key] = {"port": pt, "client_port": 443, "origin_rule": True}; claim(pt, key)
-        print(f"    → Origin-Rule mode: server port {pt}, clients use 443"); continue
+        print(f"    → Origin-Rule {pt} → client 443"); continue
     if choice.isdigit():
         pt = int(choice)
-        if busy(pt, key):
-            warn(f"    port {pt} is also busy ({busy(pt, key)}) — skipped"); continue
+        if busy(pt, key): warn(f"    {pt} busy — skipped"); continue
         if key in CDN_KEYS and pt not in CF_HTTPS:
-            warn("    Cloudflare only proxies 443 2053 2083 2087 2096 8443 — using Origin-Rule mode")
             PLAN[key] = {"port": pt, "client_port": 443, "origin_rule": True}
-        else:
-            PLAN[key] = {"port": pt, "client_port": 0}
+        else: PLAN[key] = {"port": pt, "client_port": 0}
         claim(pt, key); print(f"    → port {pt}"); continue
     PLAN[key] = {"port": alt, "client_port": 0}; claim(alt, key)
     print(f"    → port {alt}")
-if not PLAN: die("Nothing left to add.")
+if not PLAN: die("Nothing to add.")
 
-# =========================================================================== REALITY targets + clean IPs
+# =========================================================================== REALITY SNI + CLEAN
 def tls13_h2(sni):
     out = sh(f"echo | timeout 6 openssl s_client -connect {sni}:443 -servername {sni} -alpn h2 -tls1_3 2>/dev/null", 10)
     return "TLSv1.3" in out and "ALPN protocol: h2" in out
-SNI_POOL = ["dl.google.com", "addons.mozilla.org", "www.samsung.com", "www.nvidia.com", "www.speedtest.net",
-            "www.amd.com", "www.asus.com", "www.lovelive-anime.jp"]
-if any(k in PLAN for k in ("rv", "rx", "rg")):
+SNI_POOL = ["dl.google.com","addons.mozilla.org","www.samsung.com","www.nvidia.com","www.speedtest.net",
+            "www.amd.com","www.asus.com","www.lovelive-anime.jp"]
+if any(k in PLAN for k in ("rv","rx","rg")):
     with cfut.ThreadPoolExecutor(8) as ex:
         okmap = dict(zip(SNI_POOL, ex.map(tls13_h2, SNI_POOL)))
     GOOD_SNI = [s for s in SNI_POOL if okmap[s]] or SNI_POOL
-else:
-    GOOD_SNI = SNI_POOL
+else: GOOD_SNI = SNI_POOL
 sni = lambda i: GOOD_SNI[i % len(GOOD_SNI)]
 
 CLEAN = []
 if CLEAN_N and CDN:
     if os.path.exists("clean-ips.txt") and os.path.getsize("clean-ips.txt") > 0:
         lst = open("clean-ips.txt", "r", encoding="utf-8").read()
-        info("using local clean-ips.txt (from scanner)")
+        info("using local clean-ips.txt")
     else:
         lst = sh(f"curl -fsSL -m10 {REPO_RAW}/clean-ips.txt") if REPO_RAW else ""
     cand = [l.split("#")[0].strip() for l in lst.splitlines() if l.split("#")[0].strip()]
     if not cand: cand = __FALLBACK_CLEAN__
-    cdn_port = next((PLAN[k]["port"] for k in ("ws", "hu", "tx", "th") if k in PLAN and not PLAN[k].get("origin_rule")), None)
-    if not cdn_port and any(PLAN.get(k, {}).get("origin_rule") for k in ("ws", "hu", "tx", "th")):
+    cdn_port = next((PLAN[k]["port"] for k in ("ws","hu","tx","th","tcx","tcw","tch")
+                     if k in PLAN and not PLAN[k].get("origin_rule")), None)
+    if not cdn_port and any(PLAN.get(k, {}).get("origin_rule") for k in ("ws","hu","tx","th","tcx","tcw","tch")):
         cdn_port = 443
     if cdn_port:
         def via_cf(a):
@@ -879,23 +759,22 @@ if CLEAN_N and CDN:
                    f"https://{CDN}:{cdn_port}/", 10)
             code, _, t = r.partition(" ")
             return (a, float(t or 9)) if code and code != "000" else None
-        info(f"checking {len(cand)} Cloudflare clean IPs / domains against {CDN} ...")
+        info(f"checking {len(cand)} against {CDN} ...")
         with cfut.ThreadPoolExecutor(16) as ex:
             res = [r for r in ex.map(via_cf, cand) if r]
         CLEAN = [a for a, _ in res][:CLEAN_N]
-        info(f"{len(CLEAN)} clean addresses ready")
+        info(f"{len(CLEAN)} clean ready")
 
-# =========================================================================== summary + confirm
 head("Plan")
 print(f"  address {ADDR}" + (f" · IPv6 {PUB6}" if PUB6 else "") + (f" · CDN {CDN}" if CDN else ""))
 for key, name, _, _ in SEL:
     if key in PLAN:
         pl = PLAN[key]
         print(f"  {G}+{N} {name:52s} port {pl['port']}{'/udp' if key in UDP_ONLY else ''}"
-              + (f"  (Origin Rule → clients use 443)" if pl.get("origin_rule") else ""))
-if CLEAN: print(f"  {G}+{N} {len(CLEAN)} clean-IP CDN configs")
-print(f"  {D}existing inbounds kept untouched: {len(inbs)}{N}")
-if A.dry_run: info("Dry run — nothing changed."); sys.exit(0)
+              + (f"  (Origin Rule)" if pl.get("origin_rule") else ""))
+if CLEAN: print(f"  {G}+{N} {len(CLEAN)} clean-IP configs")
+print(f"  {D}existing inbounds untouched: {len(inbs)}{N}")
+if A.dry_run: info("Dry run."); sys.exit(0)
 if not yes("Start?", True): sys.exit(0)
 
 # =========================================================================== builders
@@ -910,8 +789,8 @@ def vlessenc():
     out = sh(f"{XRAY} vlessenc").splitlines()
     for n, l in enumerate(out):
         if "X25519" in l and n + 2 < len(out):
-            return out[n + 1].split('"')[3], out[n + 2].split('"')[3]
-    raise RuntimeError("this Xray has no 'vlessenc' (update Xray-core)")
+            return out[n+1].split('"')[3], out[n+2].split('"')[3]
+    raise RuntimeError("no vlessenc (Xray 26 needed)")
 def reality(network, target, extra):
     priv, pub = x25519()
     s = {"network": network, "security": "reality", "externalProxy": [],
@@ -921,10 +800,10 @@ def reality(network, target, extra):
                              "settings": {"publicKey": pub, "fingerprint": "chrome", "serverName": "", "spiderX": "/"}}}
     s.update(extra); return s
 def tls(alpn):
-    return {"serverName": DOMAIN, "minVersion": "1.2", "maxVersion": "1.3", "cipherSuites": "", "rejectUnknownSni": False,
-            "disableSystemRoot": False, "enableSessionResumption": False,
-            "certificates": [{"certificateFile": CERT, "keyFile": KEY, "oneTimeLoading": False, "usage": "encipherment",
-                              "buildChain": False}],
+    return {"serverName": DOMAIN, "minVersion": "1.2", "maxVersion": "1.3", "cipherSuites": "",
+            "rejectUnknownSni": False, "disableSystemRoot": False, "enableSessionResumption": False,
+            "certificates": [{"certificateFile": CERT, "keyFile": KEY, "oneTimeLoading": False,
+                              "usage": "encipherment", "buildChain": False}],
             "alpn": alpn, "settings": {"fingerprint": "chrome", "echConfigList": ""}}
 def tls_stream(network, extra, alpn):
     s = {"network": network, "security": "tls", "externalProxy": [], "tlsSettings": tls(alpn)}; s.update(extra); return s
@@ -932,64 +811,79 @@ TCP = {"tcpSettings": {"acceptProxyProtocol": False, "header": {"type": "none"}}
 XH = lambda: {"path": "/" + hx(5), "host": "", "mode": "auto", "xPaddingBytes": "100-1000",
               "noSSEHeader": False, "scMaxEachPostBytes": "1000000", "scMaxBufferedPosts": 30}
 VL = lambda: {"clients": [], "decryption": "none", "fallbacks": []}
-FRAG = json.dumps({"tcp": [{"type": "fragment", "settings": {"packets": "tlshello", "lengths": ["10-30"], "delays": ["5-15"]}}]})
-SNIFF = {"enabled": True, "destOverride": ["http", "tls", "quic"], "metadataOnly": False, "routeOnly": True}
+FRAG = json.dumps({"tcp":[{"type":"fragment","settings":{"packets":"tlshello","lengths":["10-30"],"delays":["5-15"]}}]})
+SNIFF = {"enabled": True, "destOverride": ["http","tls","quic"], "metadataOnly": False, "routeOnly": True}
 PATHS = {}
 def ws_stream():
     PATHS["ws"] = "/" + hx(5)
-    return tls_stream("ws", {"wsSettings": {"acceptProxyProtocol": False, "path": PATHS["ws"], "host": "", "headers": {},
-                                            "heartbeatPeriod": 30}}, ["http/1.1"])
+    return tls_stream("ws", {"wsSettings": {"acceptProxyProtocol": False, "path": PATHS["ws"],
+                                            "host": "", "headers": {}, "heartbeatPeriod": 30}}, ["http/1.1"])
 def hu_stream():
     PATHS["hu"] = "/" + hx(5)
-    return tls_stream("httpupgrade", {"httpupgradeSettings": {"acceptProxyProtocol": False, "path": PATHS["hu"], "host": "",
-                                                              "headers": {}}}, ["http/1.1"])
+    return tls_stream("httpupgrade", {"httpupgradeSettings": {"acceptProxyProtocol": False,
+                                                              "path": PATHS["hu"], "host": "", "headers": {}}},
+                      ["http/1.1"])
 def th_stream():
-    """Trojan over TLS + HTTPUpgrade (CDN-capable)."""
     PATHS["th"] = "/" + hx(5)
-    return tls_stream("httpupgrade",
-                      {"httpupgradeSettings": {"acceptProxyProtocol": False,
-                                               "path": PATHS["th"], "host": "", "headers": {}}},
+    return tls_stream("httpupgrade", {"httpupgradeSettings": {"acceptProxyProtocol": False,
+                                                              "path": PATHS["th"], "host": "", "headers": {}}},
+                      ["http/1.1"])
+def tcx_stream():
+    """Trojan + TLS + XHTTP (CDN)."""
+    x = XH(); PATHS["tcx"] = x["path"]
+    return tls_stream("xhttp", {"xhttpSettings": x}, ["h2","http/1.1"])
+def tcw_stream():
+    """Trojan + TLS + WebSocket (CDN)."""
+    PATHS["tcw"] = "/" + hx(5)
+    return tls_stream("ws", {"wsSettings": {"acceptProxyProtocol": False, "path": PATHS["tcw"],
+                                            "host": "", "headers": {}, "heartbeatPeriod": 30}},
+                      ["http/1.1"])
+def tch_stream():
+    """Trojan + TLS + HTTPUpgrade (CDN)."""
+    PATHS["tch"] = "/" + hx(5)
+    return tls_stream("httpupgrade", {"httpupgradeSettings": {"acceptProxyProtocol": False,
+                                                              "path": PATHS["tch"], "host": "", "headers": {}}},
                       ["http/1.1"])
 def tx_stream():
     x = XH(); PATHS["tx"] = x["path"]
-    return tls_stream("xhttp", {"xhttpSettings": x}, ["h2", "http/1.1"])
+    return tls_stream("xhttp", {"xhttpSettings": x}, ["h2","http/1.1"])
 def pq():
     dec, enc = vlessenc()
     return ({"clients": [], "decryption": dec, "encryption": enc},
-            {"network": "tcp", "security": "none", "externalProxy": [], **TCP,
-             "finalmask": {"tcp": [{"type": "sudoku", "settings": {"password": hx(16), "ascii": "prefer_entropy",
-                                                                    "paddingMin": 2, "paddingMax": 7}}]}})
+            {"network":"tcp","security":"none","externalProxy":[], **TCP,
+             "finalmask":{"tcp":[{"type":"sudoku","settings":{"password":hx(16),"ascii":"prefer_entropy",
+                                                              "paddingMin":2,"paddingMax":7}}]}})
 def tpq():
-    """Trojan over TCP + FinalMask Sudoku (post-quantum)."""
     return ({"clients": []},
-            {"network": "tcp", "security": "none", "externalProxy": [], **TCP,
-             "finalmask": {"tcp": [{"type": "sudoku",
-                                    "settings": {"password": hx(16),
-                                                 "ascii": "prefer_entropy",
-                                                 "paddingMin": 2,
-                                                 "paddingMax": 7}}]}})
+            {"network":"tcp","security":"none","externalProxy":[], **TCP,
+             "finalmask":{"tcp":[{"type":"sudoku","settings":{"password":hx(16),"ascii":"prefer_entropy",
+                                                              "paddingMin":2,"paddingMax":7}}]}})
 BUILD = {
     "rv":  ("vless", lambda: (VL(), reality("tcp", sni(0), TCP))),
     "rx":  ("vless", lambda: (VL(), reality("xhttp", sni(1), {"xhttpSettings": XH()}))),
     "rg":  ("vless", lambda: (VL(), reality("grpc", sni(2), {"grpcSettings": {"serviceName": hx(4), "authority": "",
                                                                               "multiMode": True}}))),
-    "tv":  ("vless", lambda: (VL(), tls_stream("tcp", TCP, ["h2", "http/1.1"]))),
+    "tv":  ("vless", lambda: (VL(), tls_stream("tcp", TCP, ["h2","http/1.1"]))),
     "tx":  ("vless", lambda: (VL(), tx_stream())),
     "ws":  ("vless", lambda: (VL(), ws_stream())),
     "hu":  ("vless", lambda: (VL(), hu_stream())),
     "th":  ("trojan", lambda: ({"clients": []}, th_stream())),
+    "tcx": ("trojan", lambda: ({"clients": []}, tcx_stream())),
+    "tcw": ("trojan", lambda: ({"clients": []}, tcw_stream())),
+    "tch": ("trojan", lambda: ({"clients": []}, tch_stream())),
     "hy":  ("hysteria", lambda: ({"version": 2, "clients": []},
-                                 {"network": "hysteria", "security": "tls", "externalProxy": [], "tlsSettings": tls(["h3"]),
-                                  "hysteriaSettings": {"version": 2, "udpIdleTimeout": 60,
-                                                       "masquerade": {"type": "proxy", "url": "https://www.bing.com",
-                                                                      "rewriteHost": True}},
-                                  "finalmask": {"udp": [{"type": "salamander", "settings": {"password": hx(16)}}],
-                                                "quicParams": {"congestion": "bbr"}}})),
+                                 {"network":"hysteria","security":"tls","externalProxy":[],"tlsSettings":tls(["h3"]),
+                                  "hysteriaSettings":{"version":2,"udpIdleTimeout":60,
+                                                      "masquerade":{"type":"proxy","url":"https://www.bing.com",
+                                                                    "rewriteHost":True}},
+                                  "finalmask":{"udp":[{"type":"salamander","settings":{"password":hx(16)}}],
+                                               "quicParams":{"congestion":"bbr"}}})),
     "pq":  ("vless", pq),
     "tpq": ("trojan", tpq),
-    "ss":  ("shadowsocks", lambda: ({"method": "2022-blake3-aes-256-gcm", "password": base64.b64encode(secrets.token_bytes(32)).decode(),
-                                     "network": "tcp,udp", "clients": [], "ivCheck": False},
-                                    {"network": "tcp", "security": "none", "externalProxy": [], **TCP})),
+    "ss":  ("shadowsocks", lambda: ({"method":"2022-blake3-aes-256-gcm",
+                                     "password":base64.b64encode(secrets.token_bytes(32)).decode(),
+                                     "network":"tcp,udp","clients":[],"ivCheck":False},
+                                    {"network":"tcp","security":"none","externalProxy":[], **TCP})),
 }
 REMARK = {
     "rv":  f"{BRAND}⚡𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐕𝐢𝐬𝐢𝐨𝐧",
@@ -1000,6 +894,9 @@ REMARK = {
     "ws":  f"{BRAND}🌐𝐂𝐃𝐍-𝐖𝐒",
     "hu":  f"{BRAND}🔗𝐂𝐃𝐍-𝐇𝐓𝐓𝐏𝐔𝐩𝐠𝐫𝐚𝐝𝐞",
     "th":  f"{BRAND}🛡️𝐓𝐫𝐨𝐣𝐚𝐧-𝐇𝐔",
+    "tcx": f"{BRAND}🛡️𝐓𝐫𝐨𝐣𝐚𝐧-𝐂𝐃𝐍-𝐗𝐇𝐓𝐓𝐏",
+    "tcw": f"{BRAND}🛡️𝐓𝐫𝐨𝐣𝐚𝐧-𝐂𝐃𝐍-𝐖𝐒",
+    "tch": f"{BRAND}🛡️𝐓𝐫𝐨𝐣𝐚𝐧-𝐂𝐃𝐍-𝐇𝐔",
     "hy":  f"{BRAND}🚄𝐇𝐲𝐬𝐭𝐞𝐫𝐢𝐚𝟐",
     "pq":  f"{BRAND}🧬𝐏𝐐-𝐒𝐮𝐝𝐨𝐤𝐮",
     "tpq": f"{BRAND}🧬𝐓𝐫𝐨𝐣𝐚𝐧-𝐏𝐐",
@@ -1023,6 +920,15 @@ def HOSTS(key):
     if key == "th":
         h = [] if PLAN["th"].get("origin_rule") else [(f"{BRAND}🛡️𝐓𝐫𝐨𝐣𝐚𝐧-𝐇𝐔", ADDR, {"sni": DOMAIN, "hostHeader": DOMAIN})]
         return h + ([cdn_host(f"{BRAND}☁️𝐓𝐫𝐨𝐣𝐚𝐧-𝐂𝐃𝐍", CDN, "th")] if CDN else [])
+    if key == "tcx":
+        h = [] if PLAN["tcx"].get("origin_rule") else [(f"{BRAND}🛡️𝐓𝐫𝐨𝐣𝐚𝐧-𝐗𝐇𝐓𝐓𝐏", ADDR, {"sni": DOMAIN, "hostHeader": DOMAIN})]
+        return h + ([cdn_host(f"{BRAND}☁️𝐓𝐫𝐨𝐣𝐚𝐧-𝐂𝐃𝐍-𝐗𝐇𝐓𝐓𝐏", CDN, "tcx")] if CDN else [])
+    if key == "tcw":
+        h = [] if PLAN["tcw"].get("origin_rule") else [(f"{BRAND}🛡️𝐓𝐫𝐨𝐣𝐚𝐧-𝐖𝐒", ADDR, {"sni": DOMAIN, "hostHeader": DOMAIN})]
+        return h + ([cdn_host(f"{BRAND}☁️𝐓𝐫𝐨𝐣𝐚𝐧-𝐂𝐃𝐍-𝐖𝐒", CDN, "tcw")] if CDN else [])
+    if key == "tch":
+        h = [] if PLAN["tch"].get("origin_rule") else [(f"{BRAND}🛡️𝐓𝐫𝐨𝐣𝐚𝐧-𝐇𝐔", ADDR, {"sni": DOMAIN, "hostHeader": DOMAIN})]
+        return h + ([cdn_host(f"{BRAND}☁️𝐓𝐫𝐨𝐣𝐚𝐧-𝐂𝐃𝐍-𝐇𝐔", CDN, "tch")] if CDN else [])
     if key == "hy": return [(f"{BRAND}🚄𝐇𝐲𝐬𝐭𝐞𝐫𝐢𝐚𝟐", ADDR, {"sni": DOMAIN})]
     if key == "pq": return [(f"{BRAND}🧬𝐏𝐐-𝐒𝐮𝐝𝐨𝐤𝐮", ADDR, {})]
     if key == "tpq": return [(f"{BRAND}🧬𝐓𝐫𝐨𝐣𝐚𝐧-𝐏𝐐", ADDR, {})]
@@ -1073,7 +979,7 @@ for key, name, _, _ in SEL:
     if xray_ok(pt, key in UDP_ONLY):
         added.append((key, iid)); info(f"added {name:52s} port {pt}")
     else:
-        warn(f"{name}: Xray on this server rejected it — removed again")
+        warn(f"{name}: engine rejected — removed")
         api(f"/panel/api/clients/{EMAIL}/detach", {"inboundIds": [iid]})
         api(f"/panel/api/inbounds/del/{iid}", post=True); restart(); time.sleep(3)
 if not added: die("Nothing could be added.")
@@ -1084,17 +990,15 @@ tmpl = settings.get("remarkTemplate", "")
 use_hosts = "{{HOST}}" in tmpl or not inbs
 if not use_hosts:
     print()
-    warn(f"Link names: the panel setting 'remarkTemplate' is '{tmpl}'.")
-    warn("Setting it to {{HOST}} gives every new link its own clear name (IPv6 / Fragment / CDN / clean IP).")
-    warn("It only changes how link NAMES are shown; nothing is deleted.")
+    warn(f"remarkTemplate = '{tmpl}'")
     use_hosts = yes("Set remarkTemplate to {{HOST}}?", True)
 chg = False
 if use_hosts and "{{HOST}}" not in tmpl: settings["remarkTemplate"] = "{{HOST}}"; chg = True
 if not settings.get("subJsonEnable"): settings["subJsonEnable"] = True; chg = True
 if chg: info("panel settings:", api("/panel/api/setting/update", settings).get("msg"))
 
-clean_key = next((k for k in ("ws", "hu", "tx", "th") if k in ADDED and not PLAN[k].get("origin_rule")), None) \
-            or next((k for k in ("ws", "hu", "tx", "th") if k in ADDED), None)
+clean_key = next((k for k in ("ws","hu","tx","th","tcx","tcw","tch") if k in ADDED and not PLAN[k].get("origin_rule")), None) \
+            or next((k for k in ("ws","hu","tx","th","tcx","tcw","tch") if k in ADDED), None)
 n_links = 0
 for order, (key, iid) in enumerate(added):
     api(f"/panel/api/inbounds/{iid}/subSortIndex", {"subSortIndex": 100 + order})
@@ -1102,7 +1006,7 @@ for order, (key, iid) in enumerate(added):
     if key == clean_key and CLEAN:
         hosts += [cdn_host(f"{BRAND}🧊𝐂𝐥𝐞𝐚𝐧-{i:02d}", a, key) for i, a in enumerate(CLEAN, 1)]
     if not use_hosts:
-        hosts = [h for h in hosts if h[1] == CDN or h[1] in CLEAN] if key in ("ws", "hu", "th") else []
+        hosts = [h for h in hosts if h[1] == CDN or h[1] in CLEAN] if key in ("ws","hu","th","tcx","tcw","tch") else []
     for i, (rem, addr, extra) in enumerate(hosts):
         if not addr: continue
         r = api("/panel/api/hosts/add", {"inboundIds": [iid], "remark": rem, "hosts": [addr], "port": 0,
@@ -1117,11 +1021,14 @@ if "Status: active" in ufw:
         if key not in UDP_ONLY: sh(f"ufw allow {pt}/tcp")
         if key in UDP_ONLY or key in BOTH: sh(f"ufw allow {pt}/udp")
     info("ufw: ports opened")
+
 if not A.no_bbr and "bbr" not in sh("sysctl -n net.ipv4.tcp_congestion_control"):
-    if yes("Enable BBR (faster TCP)?", True):
-        open("/etc/sysctl.d/99-bbr.conf", "w").write("net.core.default_qdisc=fq\nnet.ipv4.tcp_congestion_control=bbr\n")
+    if yes("Enable BBR?", True):
+        open("/etc/sysctl.d/99-bbr.conf","w").write(
+            "net.core.default_qdisc=fq\nnet.ipv4.tcp_congestion_control=bbr\n")
         sh("modprobe tcp_bbr; sysctl --system")
         info("BBR:", sh("sysctl -n net.ipv4.tcp_congestion_control"))
+
 info("restarting panel ...")
 api("/panel/api/setting/restartPanel", post=True); time.sleep(8); restart(); time.sleep(4)
 
@@ -1136,33 +1043,32 @@ sres = ["--resolve", f"{shost}:{sport}:127.0.0.1"] if re.search(r"[a-z]", shost)
 # =========================================================================== test
 passed = total = 0
 if not A.no_test and XRAY:
-    head("Testing every config (client → this server → internet)")
+    head("E2E test")
     try:
         subs = json.loads(subprocess.run(["curl", "-sk", "-m", "20"] + sres + [JSUB if sres else JSUB.replace(shost, "127.0.0.1")],
                                          capture_output=True, text=True).stdout)
         subs = subs if isinstance(subs, list) else [subs]
-    except Exception:
-        subs = []; warn("could not read the JSON subscription")
+    except Exception: subs = []; warn("couldn't read JSON subscription")
     ins, outs, rules, meta = [], [], [], []
     for n, cfg in enumerate(subs):
         o = next((x for x in cfg.get("outbounds", []) if x.get("tag") == "proxy"), None)
         if not o: continue
         s = o.get("settings", {})
         via_cdn = (o.get("streamSettings", {}).get("tlsSettings") or {}).get("serverName") == CDN and CDN
-        def fix(a):
-            if via_cdn: return a
-            return "::1" if PUB6 and a == PUB6 else "127.0.0.1"
-        for k in ("vnext", "servers"):
+        def fix(a): return a if via_cdn else ("::1" if PUB6 and a == PUB6 else "127.0.0.1")
+        for k in ("vnext","servers"):
             for srv in s.get(k, []) or []: srv["address"] = fix(srv.get("address"))
         if "address" in s: s["address"] = fix(s["address"])
         o["tag"] = f"p{n}"; outs.append(o)
-        ins.append({"tag": f"s{n}", "listen": "127.0.0.1", "port": 23000 + n, "protocol": "socks", "settings": {"udp": True}})
-        rules.append({"type": "field", "inboundTag": [f"s{n}"], "outboundTag": f"p{n}"})
-        meta.append((cfg.get("remarks", f"#{n}"), 23000 + n))
+        ins.append({"tag":f"s{n}","listen":"127.0.0.1","port":23000+n,"protocol":"socks","settings":{"udp":True}})
+        rules.append({"type":"field","inboundTag":[f"s{n}"],"outboundTag":f"p{n}"})
+        meta.append((cfg.get("remarks", f"#{n}"), 23000+n))
     if outs:
-        json.dump({"log": {"loglevel": "none"}, "inbounds": ins, "outbounds": outs + [{"protocol": "freedom", "tag": "d"}],
-                   "routing": {"rules": rules}}, open("/tmp/.xui-pro-e2e.json", "w"))
-        pr = subprocess.Popen([XRAY, "run", "-c", "/tmp/.xui-pro-e2e.json"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        json.dump({"log":{"loglevel":"none"},"inbounds":ins,
+                   "outbounds":outs + [{"protocol":"freedom","tag":"d"}],
+                   "routing":{"rules":rules}}, open("/tmp/.xui-pro-e2e.json","w"))
+        pr = subprocess.Popen([XRAY,"run","-c","/tmp/.xui-pro-e2e.json"],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(3)
         def probe(m):
             name, pt = m
@@ -1175,61 +1081,38 @@ if not A.no_test and XRAY:
             with cfut.ThreadPoolExecutor(6) as ex:
                 for name, ok in ex.map(probe, meta):
                     total += 1; passed += ok
-                    print(f"  {G + 'OK  ' + N if ok else R + 'FAIL' + N} {name}")
+                    print(f"  {G+'OK  '+N if ok else R+'FAIL'+N} {name}")
         finally:
             pr.terminate()
             try: os.remove("/tmp/.xui-pro-e2e.json")
             except Exception: pass
-        info(f"{passed}/{total} configs work")
+        info(f"{passed}/{total} work")
 
 # =========================================================================== done
 head("Done")
 print(f"  client       {B}{EMAIL}{N}   ({len(added)} inbounds, {n_links} links — {len(inbs)} existing inbounds untouched)")
 print(f"  subscription {B}{SUB}{N}")
-print(f"  JSON sub     {B}{JSUB}{N}  {D}(use this one for FinalMask configs){N}")
+print(f"  JSON sub     {B}{JSUB}{N}")
 ports_txt = ", ".join(f"{PLAN[k]['port']}/{'udp' if k in UDP_ONLY else ('tcp+udp' if k in BOTH else 'tcp')}" for k, _ in added)
-print(f"\n  Open in your cloud firewall (IPv4 + IPv6): {ports_txt}")
+print(f"\n  Open in cloud firewall: {ports_txt}")
 if CDN:
-    print(f"  Cloudflare: {CDN} = proxied (orange) · {DOMAIN} = DNS only (grey) · SSL/TLS = Full")
+    print(f"  Cloudflare: {CDN} = proxied · {DOMAIN} = DNS-only · SSL/TLS = Full")
 rules_needed = [(k, PLAN[k]["port"]) for k, _ in added if PLAN[k].get("origin_rule")]
 if rules_needed:
-    print(f"\n  {Y}Cloudflare Origin Rules needed{N} (Rules > Origin Rules > Create):")
+    print(f"\n  {Y}Cloudflare Origin Rules needed{N}:")
     for k, pt in rules_needed:
-        print(f"    if Hostname = {CDN} AND URI Path starts with {PATHS.get(k, '/')}  →  Destination port = {pt}")
-print(f"\n  backup: {bak}")
+        print(f"    Hostname = {CDN} AND Path starts with {PATHS.get(k,'/')}  →  port {pt}")
+if bak: print(f"\n  backup: {bak}")
 print(f"  repo:   {USER_REPO}\n")
 if TEMP_TOKEN_ID is not None:
     api(f"/panel/api/setting/apiTokens/delete/{TEMP_TOKEN_ID}", post=True)
 
-# ═══════════════════════════════════════════════════════════════════════════
-#  POST-INSTALL: hand off to the scanner (opt-in)
-# ═══════════════════════════════════════════════════════════════════════════
 if not A.no_scan and not A.install and not A.dry_run and MODE_CHOICE != "install":
-    seed = None
-    try:
-        raw = subprocess.run(["curl", "-sk", "-m", "20"] + sres + [JSUB if sres else JSUB.replace(shost, "127.0.0.1")],
-                             capture_output=True, text=True).stdout
-        j = json.loads(raw); j = j if isinstance(j, list) else [j]
-        for cfg in j:
-            for ob in cfg.get("outbounds", []):
-                if ob.get("tag") == "proxy" and ob.get("protocol") == "vless":
-                    s = ob.get("settings", {})
-                    v = (s.get("vnext") or [{}])[0]
-                    if v.get("address") and v.get("users"):
-                        seed = v; break
-            if seed: break
-    except Exception:
-        seed = None
-
     if not INTERACTIVE:
-        if yes("Also run the scanner?", False):
-            run_scanner()
+        if yes("Also run scanner?", False): run_scanner()
     else:
-        print(f"\n{B}{C}── Bonus: Proxy Scanner ──────────────────────────────────────────{N}")
-        print(f"  {D}Optional. Pings an IP-range or domain list and rebuilds a")
-        print(f"  proxy link template against every active host.{N}")
-        if yes("Run the scanner now?", False):
-            run_scanner()
+        print(f"\n{B}{C}── Bonus: Proxy Scanner ──{N}")
+        if yes("Run scanner now?", False): run_scanner()
 PYEOF
 
 FALLBACK='time.is creativecommons.org www.digitalocean.com www.canva.com www.npmjs.com www.udemy.com cdnjs.com
