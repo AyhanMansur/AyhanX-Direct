@@ -87,7 +87,7 @@ BANNER = r"""
           ░ ░                                            ░                          ░
 """
 USER_REPO  = "https://github.com/AyhanMansur/AyhanX-Direct"
-BRAND      = "🧩👾🍁𝐀𝐲𝐡𝐚𝐧𝐗-𝐃𝐢𝐫𝐞𝐜𝐭-"
+BRAND      = "🧩👾𝐀𝐲𝐡𝐚𝐧𝐗-𝐃𝐢𝐫𝐞𝐜𝐭-"
 PRO_TITLE  = f"{B}{C}3x-ui Pro Configs  ·  add-only installer{N}"
 SCAN_TITLE = f"{B}{C}Proxy Scanner  ·  range / domain → link builder{N}"
 
@@ -705,23 +705,23 @@ if CERT:
         elif not any(is_cf(i) for i in ips): warn(f"{CDN} is not proxied by Cloudflare (orange cloud is off) — CDN skipped."); CDN = ""
         else: info(f"{CDN} is behind Cloudflare")
 
-# =========================================================================== 3. configs (BRANDED)
+# =========================================================================== 3. configs (BRANDED, bold Unicode)
 CATALOG = [
-    ("rv", f"{BRAND}⚡ Reality Vision", None, "fastest + stealthiest, main config"),
-    ("rx", f"{BRAND}🌀 Reality XHTTP", None, "REALITY over XHTTP, padding"),
-    ("rg", f"{BRAND}🔷 Reality gRPC", None, "REALITY over gRPC"),
-    ("tv", f"{BRAND}🔐 TLS Vision", "tls", "real certificate, + Fragment and IPv6 variants"),
-    ("tx", f"{BRAND}🛰 TLS XHTTP", "tls", "direct + CDN capable"),
-    ("ws", f"{BRAND}🌐 CDN WS", "cdn", "Cloudflare WebSocket + clean IPs"),
-    ("hu", f"{BRAND}🔗 CDN HTTPUpgrade", "cdn", "Cloudflare HTTPUpgrade"),
-    ("hy", f"{BRAND}🚄 Hysteria2", "tls", "UDP/QUIC, Salamander FinalMask (needs UDP open)"),
-    ("pq", f"{BRAND}🧬 PQ Sudoku", None, "post-quantum VLESS + Sudoku FinalMask (beta, Xray 26 clients)"),
-    ("ss", f"{BRAND}🛟 Shadowsocks-2022", None, "simple backup"),
+    ("rv", f"{BRAND}⚡𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐕𝐢𝐬𝐢𝐨𝐧", None, "Reality Vision — fastest, main config"),
+    ("rx", f"{BRAND}🌀𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐗𝐇𝐓𝐓𝐏", None, "Reality XHTTP — padding"),
+    ("rg", f"{BRAND}🔷𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐠𝐑𝐏𝐂", None, "Reality gRPC"),
+    ("tv", f"{BRAND}🔐𝐓𝐋𝐒-𝐕𝐢𝐬𝐢𝐨𝐧", "tls", "TLS Vision + Fragment, IPv6"),
+    ("tx", f"{BRAND}🛰𝐓𝐋𝐒-𝐗𝐇𝐓𝐓𝐏", "tls", "TLS XHTTP, direct + CDN"),
+    ("ws", f"{BRAND}🌐𝐂𝐃𝐍-𝐖𝐒", "cdn", "Cloudflare WebSocket + clean IPs"),
+    ("hu", f"{BRAND}🔗𝐂𝐃𝐍-𝐇𝐓𝐓𝐏𝐔𝐩𝐠𝐫𝐚𝐝𝐞", "cdn", "Cloudflare HTTPUpgrade"),
+    ("hy", f"{BRAND}🚄𝐇𝐲𝐬𝐭𝐞𝐫𝐢𝐚𝟐", "tls", "Hysteria2 + Salamander (needs UDP)"),
+    ("pq", f"{BRAND}🧬𝐏𝐐-𝐒𝐮𝐝𝐨𝐤𝐮", None, "PQ Sudoku (beta, Xray 26)"),
+    ("ss", f"{BRAND}🛟𝐒𝐡𝐚𝐝𝐨𝐰𝐬𝐨𝐜𝐤𝐬-𝟐𝟎𝟐𝟐", None, "Shadowsocks-2022 backup"),
 ]
 avail = [c for c in CATALOG if c[2] is None or (c[2] == "tls" and CERT) or (c[2] == "cdn" and CDN)]
 head("3/4  Which configs to add")
 for n, (k, name, _, desc) in enumerate(avail, 1):
-    print(f"  {B}{n:2d}{N}) {name:46s} {D}{desc}{N}")
+    print(f"  {B}{n:2d}{N}) {name:52s} {D}{desc}{N}")
 skipped = [c[1] for c in CATALOG if c not in avail]
 if skipped:
     print(f"  {D}not available (no domain/cert/CDN): {', '.join(skipped)}{N}")
@@ -797,11 +797,11 @@ for key, name, _, _ in SEL:
     who = busy(want, key)
     if not who:
         PLAN[key] = {"port": want, "client_port": 0}; claim(want, key)
-        print(f"  {name:46s} port {want}{'/udp' if key in UDP_ONLY else ''}")
+        print(f"  {name:52s} port {want}{'/udp' if key in UDP_ONLY else ''}")
         continue
     alt = free_from(PREF[key], key)
     cdn_note = key in CDN_KEYS and (alt is None or alt not in CF_HTTPS)
-    print(f"  {Y}{name:46s} port {want} is used by {who}{N}")
+    print(f"  {Y}{name:52s} port {want} is used by {who}{N}")
     if key in CDN_KEYS and alt in CF_HTTPS: hint = f"Enter = use {alt} (a Cloudflare port)"
     elif key in CDN_KEYS: hint = "all Cloudflare ports busy: o = Origin-Rule mode, s = skip"
     else: hint = f"Enter = use {alt}"
@@ -882,7 +882,7 @@ print(f"  address {ADDR}" + (f" · IPv6 {PUB6}" if PUB6 else "") + (f" · CDN {C
 for key, name, _, _ in SEL:
     if key in PLAN:
         pl = PLAN[key]
-        print(f"  {G}+{N} {name:46s} port {pl['port']}{'/udp' if key in UDP_ONLY else ''}"
+        print(f"  {G}+{N} {name:52s} port {pl['port']}{'/udp' if key in UDP_ONLY else ''}"
               + (f"  (Origin Rule → clients use 443)" if pl.get("origin_rule") else ""))
 if CLEAN: print(f"  {G}+{N} {len(CLEAN)} clean-IP CDN configs")
 print(f"  {D}existing inbounds kept untouched: {len(inbs)}{N}")
@@ -965,35 +965,35 @@ BUILD = {
                                    {"network": "tcp", "security": "none", "externalProxy": [], **TCP})),
 }
 REMARK = {
-    "rv": f"{BRAND}⚡ Reality Vision",
-    "rx": f"{BRAND}🌀 Reality XHTTP",
-    "rg": f"{BRAND}🔷 Reality gRPC",
-    "tv": f"{BRAND}🔐 TLS Vision",
-    "tx": f"{BRAND}🛰 TLS XHTTP",
-    "ws": f"{BRAND}🌐 TLS WS",
-    "hu": f"{BRAND}🔗 TLS HTTPUpgrade",
-    "hy": f"{BRAND}🚄 Hysteria2 · UDP",
-    "pq": f"{BRAND}🧬 PQ Sudoku · Beta",
-    "ss": f"{BRAND}🛟 Shadowsocks · Backup",
+    "rv": f"{BRAND}⚡𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐕𝐢𝐬𝐢𝐨𝐧",
+    "rx": f"{BRAND}🌀𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐗𝐇𝐓𝐓𝐏",
+    "rg": f"{BRAND}🔷𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐠𝐑𝐏𝐂",
+    "tv": f"{BRAND}🔐𝐓𝐋𝐒-𝐕𝐢𝐬𝐢𝐨𝐧",
+    "tx": f"{BRAND}🛰𝐓𝐋𝐒-𝐗𝐇𝐓𝐓𝐏",
+    "ws": f"{BRAND}🌐𝐂𝐃𝐍-𝐖𝐒",
+    "hu": f"{BRAND}🔗𝐂𝐃𝐍-𝐇𝐓𝐓𝐏𝐔𝐩𝐠𝐫𝐚𝐝𝐞",
+    "hy": f"{BRAND}🚄𝐇𝐲𝐬𝐭𝐞𝐫𝐢𝐚𝟐",
+    "pq": f"{BRAND}🧬𝐏𝐐-𝐒𝐮𝐝𝐨𝐤𝐮",
+    "ss": f"{BRAND}🛟𝐒𝐡𝐚𝐝𝐨𝐰𝐬𝐨𝐜𝐤𝐬-𝟐𝟎𝟐𝟐",
 }
 def cdn_host(name, addr, key):
     cp = PLAN[key].get("client_port", 0)
     return (name, addr, {"sni": CDN, "hostHeader": CDN, "finalMask": FRAG, **({"port": cp} if cp else {})})
 def HOSTS(key):
-    v6 = lambda n, ex={}: [(f"{BRAND}6️⃣ {n} · IPv6", PUB6, ex)] if PUB6 else []
-    if key == "rv": return [(f"{BRAND}⚡ Reality Vision · Main", ADDR, {})] + v6("Reality Vision")
-    if key == "rx": return [(f"{BRAND}🌀 Reality XHTTP", ADDR, {})] + v6("Reality XHTTP")
-    if key == "rg": return [(f"{BRAND}🔷 Reality gRPC", ADDR, {})]
-    if key == "tv": return [(f"{BRAND}🔐 TLS Vision", ADDR, {"sni": DOMAIN}),
-                            (f"{BRAND}🧩 TLS Vision · Fragment", ADDR, {"sni": DOMAIN, "finalMask": FRAG})] + v6("TLS Vision", {"sni": DOMAIN})
+    v6 = lambda n, ex={}: [(f"{BRAND}6️⃣{n}-IPv6", PUB6, ex)] if PUB6 else []
+    if key == "rv": return [(f"{BRAND}⚡𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐕𝐢𝐬𝐢𝐨𝐧", ADDR, {})] + v6("𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐕𝐢𝐬𝐢𝐨𝐧")
+    if key == "rx": return [(f"{BRAND}🌀𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐗𝐇𝐓𝐓𝐏", ADDR, {})] + v6("𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐗𝐇𝐓𝐓𝐏")
+    if key == "rg": return [(f"{BRAND}🔷𝐑𝐞𝐚𝐥𝐢𝐭𝐲-𝐠𝐑𝐏𝐂", ADDR, {})]
+    if key == "tv": return [(f"{BRAND}🔐𝐓𝐋𝐒-𝐕𝐢𝐬𝐢𝐨𝐧", ADDR, {"sni": DOMAIN}),
+                            (f"{BRAND}🔐𝐓𝐋𝐒-𝐕𝐢𝐬𝐢𝐨𝐧-𝐅𝐫𝐚𝐠", ADDR, {"sni": DOMAIN, "finalMask": FRAG})] + v6("𝐓𝐋𝐒-𝐕𝐢𝐬𝐢𝐨𝐧", {"sni": DOMAIN})
     if key == "tx":
-        h = [] if PLAN["tx"].get("origin_rule") else [(f"{BRAND}🛰 TLS XHTTP", ADDR, {"sni": DOMAIN, "hostHeader": DOMAIN})]
-        return h + ([cdn_host(f"{BRAND}☁️ CDN XHTTP · Fragment", CDN, "tx")] if CDN else [])
-    if key == "ws": return [cdn_host(f"{BRAND}☁️ CDN WS · Fragment", CDN, "ws")]
-    if key == "hu": return [cdn_host(f"{BRAND}☁️ CDN HTTPUpgrade · Fragment", CDN, "hu")]
-    if key == "hy": return [(f"{BRAND}🚄 Hysteria2 · UDP", ADDR, {"sni": DOMAIN})]
-    if key == "pq": return [(f"{BRAND}🧬 PQ Sudoku · Beta", ADDR, {})]
-    if key == "ss": return [(f"{BRAND}🛟 Shadowsocks · Backup", ADDR, {})]
+        h = [] if PLAN["tx"].get("origin_rule") else [(f"{BRAND}🛰𝐓𝐋𝐒-𝐗𝐇𝐓𝐓𝐏", ADDR, {"sni": DOMAIN, "hostHeader": DOMAIN})]
+        return h + ([cdn_host(f"{BRAND}🛰𝐂𝐃𝐍-𝐗𝐇𝐓𝐓𝐏-𝐅𝐫𝐚𝐠", CDN, "tx")] if CDN else [])
+    if key == "ws": return [cdn_host(f"{BRAND}🌐𝐂𝐃𝐍-𝐖𝐒-𝐅𝐫𝐚𝐠", CDN, "ws")]
+    if key == "hu": return [cdn_host(f"{BRAND}🔗𝐂𝐃𝐍-𝐇𝐔-𝐅𝐫𝐚𝐠", CDN, "hu")]
+    if key == "hy": return [(f"{BRAND}🚄𝐇𝐲𝐬𝐭𝐞𝐫𝐢𝐚𝟐", ADDR, {"sni": DOMAIN})]
+    if key == "pq": return [(f"{BRAND}🧬𝐏𝐐-𝐒𝐮𝐝𝐨𝐤𝐮", ADDR, {})]
+    if key == "ss": return [(f"{BRAND}🛟𝐒𝐡𝐚𝐝𝐨𝐰𝐬𝐨𝐜𝐤𝐬-𝟐𝟎𝟐𝟐", ADDR, {})]
     return []
 
 # =========================================================================== apply
@@ -1038,7 +1038,7 @@ for key, name, _, _ in SEL:
         api(f"/panel/api/clients/{EMAIL}/attach", {"inboundIds": [iid]})
     restart()
     if xray_ok(pt, key in UDP_ONLY):
-        added.append((key, iid)); info(f"added {name:46s} port {pt}")
+        added.append((key, iid)); info(f"added {name:52s} port {pt}")
     else:
         warn(f"{name}: Xray on this server rejected it — removed again")
         api(f"/panel/api/clients/{EMAIL}/detach", {"inboundIds": [iid]})
@@ -1067,7 +1067,7 @@ for order, (key, iid) in enumerate(added):
     api(f"/panel/api/inbounds/{iid}/subSortIndex", {"subSortIndex": 100 + order})
     hosts = HOSTS(key)
     if key == clean_key and CLEAN:
-        hosts += [cdn_host(f"{BRAND}🧊 Clean {i:02d} · {a}", a, key) for i, a in enumerate(CLEAN, 1)]
+        hosts += [cdn_host(f"{BRAND}🧊𝐂𝐥𝐞𝐚𝐧-{i:02d}", a, key) for i, a in enumerate(CLEAN, 1)]
     if not use_hosts:
         hosts = [h for h in hosts if h[1] == CDN or h[1] in CLEAN] if key in ("ws", "hu") else []
     for i, (rem, addr, extra) in enumerate(hosts):
