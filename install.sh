@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  3x-ui Pro Configs + Proxy Scanner  (3x-ui / Marzban)
+#  3x-ui Pro Configs + Proxy Scanner  (3x-ui / Marzban / Pasarguard)
 #  Repo: https://github.com/AyhanMansur/AyhanX-Direct
 # =============================================================================
 set -euo pipefail
@@ -32,23 +32,14 @@ if ! command -v pipx >/dev/null 2>&1 && [ -n "$PKG" ]; then
     echo "[!] installing pipx via $PKG_NAME …"
     $PKG pipx >/dev/null 2>&1 || true
 fi
-if { [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; } \
-   && ! command -v xclip >/dev/null 2>&1 \
-   && command -v apt-get >/dev/null 2>&1; then
-    echo "[!] installing xclip via apt …"
-    apt-get install -y xclip >/dev/null 2>&1 || true
-fi
 
 REPO_RAW="https://raw.githubusercontent.com/pdnczone/3x-ui-pro-configs/main"
 USER_REPO="https://github.com/AyhanMansur/AyhanX-Direct"
 TMPPY=$(mktemp /tmp/xui-pro.XXXXXX.py)
 trap 'rm -f "$TMPPY"' EXIT
 cat > "$TMPPY" <<'PYEOF'
-# ═══════════════════════════════════════════════════════════════════════════
-#  IMPORTS
-# ═══════════════════════════════════════════════════════════════════════════
 import argparse, base64, glob, ipaddress, json, os, re, secrets, shutil
-import socket, string, subprocess, sys, time, platform, uuid, urllib.parse, random
+import socket, string, subprocess, sys, time, platform, urllib.parse, random
 import concurrent.futures as cfut
 from ipaddress import ip_network
 
@@ -91,10 +82,6 @@ BRAND      = "🧩👾𝐀𝐲𝐡𝐚𝐧𝐗-𝐃𝐢𝐫𝐞𝐜𝐭-"
 PRO_TITLE  = f"{B}{C}3x-ui Pro Configs  ·  add-only installer{N}"
 SCAN_TITLE = f"{B}{C}Proxy Scanner  ·  range / domain → link builder{N}"
 
-# ═══════════════════════════════════════════════════════════════════════════
-#  CLI
-# ═══════════════════════════════════════════════════════════════════════════
-REPO_RAW = os.environ.get("REPO_RAW", "")
 p = argparse.ArgumentParser()
 for a in ("--domain","--cdn","--configs","--email","--token","--api-key","--clean","--ports",
           "--scan-limit","--panel","--panel-url","--panel-user","--panel-pass"):
@@ -198,7 +185,6 @@ def scan_domains(dl, limit=None):
     for d in dl:
         if scan_host(d): a.append(d); print(f"{OKGREEN}   ✅ {d}{ENDC}")
     return a, len(dl)
-
 def check_clean_ip(host, cdn_host, cdn_port, timeout=6, max_ms=1500):
     ip = host
     if not re.match(r"^[\d.]+$", host):
@@ -225,7 +211,6 @@ def write_clean_ips(items, filename="clean-ips.txt"):
     except Exception as e:
         print(f"{WARNING}⚠️ {filename}: {e}{ENDC}")
 
-# ───────── proxy link parse / build ─────────
 def parse_proxy_link(link):
     link = link.strip()
     if link.startswith('vless://'): return parse_vless(link)
@@ -298,9 +283,8 @@ def build_hysteria(c,h):
     if c['fragment']: u += f"#{c['fragment']}"
     return u
 def build_proxy_link(c,h):
-    s = c['scheme']
     return {'vless':build_vless,'vmess':build_vmess,'trojan':build_trojan,
-            'ss':build_shadowsocks,'hysteria':build_hysteria}[s](c,h)
+            'ss':build_shadowsocks,'hysteria':build_hysteria}[c['scheme']](c,h)
 
 def get_cached_list(url, cache_file):
     use_requests = ensure_requests()
@@ -408,13 +392,13 @@ def run_scanner(default_template=None):
         copy_to_clipboard("\n".join(gen) if gen else "\n".join(all_a))
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  PANEL ADAPTERS — 3x-ui + Marzban
+#  PANEL ADAPTERS — 3x-ui + Marzban + Pasarguard
 # ═══════════════════════════════════════════════════════════════════════════
 class PanelBase:
     name = "abstract"
     def __init__(self, base, token, resolve):
         self.base = base.rstrip("/"); self.token = token or ""; self.resolve = resolve
-    def _http(self, path, body=None, method=None, timeout=20):
+    def _http(self, path, body=None, method=None, timeout=8):
         c = ["curl","-sk","-m",str(timeout)] + self.resolve
         if self.token: c += ["-H", f"Authorization: Bearer {self.token}"]
         if body is not None:
@@ -424,6 +408,10 @@ class PanelBase:
         out = subprocess.run(c + [self.base + path], capture_output=True, text=True).stdout
         try: return json.loads(out)
         except Exception: return {"success": False, "raw": out[:300]}
+    def _code(self, path, method=None, timeout=4):
+        c = ["curl","-sk","-m",str(timeout),"-o","/dev/null","-w","%{http_code}"] + self.resolve
+        if method: c += ["-X", method]
+        return sh(" ".join(c) + f" '{self.base}{path}'")
     def probe(self):           raise NotImplementedError
     def list_inbounds(self):   raise NotImplementedError
     def add_inbound(self, remark, port, protocol, settings, stream, sniffing): raise NotImplementedError
@@ -444,14 +432,13 @@ class Panel3xui(PanelBase):
     name = "3x-ui"
     def probe(self):
         r = self._http("/panel/api/inbounds/list")
-        if r.get("success") is True:
-            return True
-        blob = json.dumps(r).lower()
-        if any(tok in blob for tok in ('"success":false', 'inbound', 'not authenticated',
-                                       'unauthorized', 'authorization', 'login')):
-            return True
-        s = json.dumps(self._http("/panel/api/server/status")).lower()
-        return "panelversion" in s or "xray" in s
+        if r.get("success") is True: return True
+        if isinstance(r, dict) and "success" in r: return True
+        for path in ("/panel/api/inbounds/list",
+                     "/panel/api/server/status",
+                     "/panel/api/setting/all"):
+            if self._code(path) in ("200","401","403"): return True
+        return False
     def _status(self): return self._http("/panel/api/server/status").get("obj") or {}
     def list_inbounds(self): return self._http("/panel/api/inbounds/list").get("obj") or []
     def add_inbound(self, remark, port, protocol, settings, stream, sniffing):
@@ -515,7 +502,6 @@ class Panel3xui(PanelBase):
         return None
 
 class PanelMarzban(PanelBase):
-    """Marzban — JWT-based (username/password → token), /api/inbound, /api/user."""
     name = "Marzban"
     def __init__(self, base, token, resolve):
         super().__init__(base, token, resolve)
@@ -530,16 +516,13 @@ class PanelMarzban(PanelBase):
             return True
         return False
     def probe(self):
-        if self.jwt:
-            return True
-        # Marzban returns 403 on /api/system without auth
+        if self.jwt: return True
         r = self._http("/api/system", method="GET")
         blob = json.dumps(r).lower()
         if "detail" in blob and ("not authenticated" in blob or "forbidden" in blob or "unauthorized" in blob):
             return True
         if any(k in blob for k in ("version", "xray_version")):
             return True
-        # HTML from other apps → reject
         return False
     def _system(self):
         r = self._http("/api/system", method="GET")
@@ -564,7 +547,6 @@ class PanelMarzban(PanelBase):
         r = self._http(f"/api/inbound/{iid}", method="DELETE")
         return r.get("success", True) and r.get("detail") is None
     def add_client(self, email, subid, password, inbound_ids):
-        # Marzban user creation — attach user to all protocols of the given inbound
         proxies = {"vless": {}, "vmess": {}, "trojan": {}}
         inbounds = {p: list(inbound_ids) for p in proxies}
         body = {"username":email,"proxies":proxies,"inbounds":inbounds,
@@ -580,23 +562,18 @@ class PanelMarzban(PanelBase):
                 if iid not in inb[k]: inb[k].append(iid)
         r2 = self._http(f"/api/user/{email}", {"inbounds":inb}, method="PUT")
         return r2.get("detail") is None
-    def detach_client(self, email, inbound_ids):
-        # Marzban deletes the user when the inbound is deleted; no-op is fine
-        return True
+    def detach_client(self, email, inbound_ids): return True
     def add_host(self, inbound_id, remark, address, extra, sort_order=0):
         body = {"remark":remark,"address":address,"port":0}
         body.update(extra or {})
         r = self._http(f"/api/inbound/{inbound_id}/hosts", body, method="POST")
         return r.get("detail") is None
-    def restart(self):
-        self._http("/api/system/restart", method="POST")
-    def xray_version(self):
-        return self._system().get("xray_version") or "?"
+    def restart(self): self._http("/api/system/restart", method="POST")
+    def xray_version(self): return self._system().get("xray_version") or "?"
     def ports_owned(self):
         tcp, udp = set(), set()
         for ib in self.list_inbounds():
-            port = ib.get("port")
-            proto = (ib.get("protocol") or "").lower()
+            port = ib.get("port"); proto = (ib.get("protocol") or "").lower()
             if not port: continue
             if proto in ("hysteria","hysteria2","wireguard"): udp.add(int(port))
             else: tcp.add(int(port))
@@ -605,7 +582,6 @@ class PanelMarzban(PanelBase):
         r = self._http(f"/api/user/{subid}", method="GET")
         if isinstance(r, dict) and r.get("subscription_url"):
             return (r["subscription_url"], None)
-        # Marzban's subscription uses the *username* as key
         return (None, None)
     def db_backup(self):
         for d in ("/var/lib/marzban","/opt/marzban"):
@@ -621,16 +597,103 @@ class PanelMarzban(PanelBase):
         if isinstance(r, dict) and "users" in r: return r["users"]
         return r if isinstance(r, list) else []
 
-def _detect_panel(force):
-    """force = '3xui' | 'marzban' | 'auto'"""
-    cands = []
-    if force == "3xui":   cands = [Panel3xui]
-    elif force == "marzban": cands = [PanelMarzban]
-    else:                 cands = [Panel3xui, PanelMarzban]
+class PanelPasarguard(PanelBase):
+    name = "Pasarguard"
+    def probe(self):
+        r = self._http("/api/system", method="GET")
+        if isinstance(r, dict) and any(k in r for k in ("version","hostname","xray_version","uptime")):
+            return True
+        blob = json.dumps(r).lower()
+        if "detail" in blob and ("not authenticated" in blob or "unauthorized" in blob):
+            return True
+        if "fastapi" in blob:
+            return True
+        if self._code("/api/system") in ("200","401","403"):
+            # 200 with JSON version body OR 401/403 FastAPI error
+            return True
+        return False
+    def _system(self):
+        r = self._http("/api/system", method="GET")
+        return r if isinstance(r, dict) else {}
+    def list_inbounds(self):
+        r = self._http("/api/inbounds", method="GET")
+        if isinstance(r, list): return r
+        if isinstance(r, dict):
+            v = r.get("inbounds") or r.get("obj") or []
+            if isinstance(v, dict): return list(v.values())
+            return v or []
+        return []
+    def add_inbound(self, remark, port, protocol, settings, stream, sniffing):
+        body = {"remark":remark,"port":port,"protocol":protocol,
+                "settings":settings,"stream_settings":stream,"sniffing_settings":sniffing,
+                "enable":True}
+        r = self._http("/api/inbounds", body, method="POST")
+        if r.get("success") is False: return None
+        obj = r.get("obj") or r
+        return obj.get("id") or (obj.get("inbound") or {}).get("id")
+    def del_inbound(self, iid):
+        return self._http(f"/api/inbounds/{iid}", method="DELETE").get("success", True)
+    def add_client(self, email, subid, password, inbound_ids):
+        body = {"username":email,"password":password,"sub_id":subid,
+                "inbound_ids":inbound_ids,"enable":True,
+                "data_limit":0,"expire":0,"note":"3x-ui-pro-configs"}
+        r = self._http("/api/clients", body, method="POST")
+        return r.get("success", True) and r.get("detail") is None
+    def attach_client(self, email, inbound_ids):
+        return self._http(f"/api/clients/{email}/inbounds",
+                          {"inbound_ids":inbound_ids}, method="PATCH").get("success", True)
+    def detach_client(self, email, inbound_ids): return True
+    def add_host(self, inbound_id, remark, address, extra, sort_order=0):
+        body = {"inbound_id":inbound_id,"remark":remark,
+                "address":address,"sort_order":sort_order}
+        body.update(extra or {})
+        return self._http("/api/extrahosts", body, method="POST").get("success", True)
+    def restart(self): self._http("/api/system/restart", method="POST")
+    def xray_version(self): return self._system().get("xray_version") or "?"
+    def ports_owned(self):
+        tcp, udp = set(), set()
+        for ib in self.list_inbounds():
+            port = ib.get("port"); proto = (ib.get("protocol") or "").lower()
+            if not port: continue
+            ss = ib.get("stream_settings") or ib.get("streamSettings") or ""
+            if isinstance(ss, str):
+                try: ss = json.loads(ss)
+                except Exception: ss = {}
+            if proto in ("hysteria","hysteria2","wireguard") or (ss or {}).get("network") in ("hysteria","kcp"):
+                udp.add(int(port))
+            else: tcp.add(int(port))
+        v = self._system().get("sub_port")
+        if v: tcp.add(int(v))
+        return tcp, udp
+    def sub_urls(self, subid):
+        sys_ = self._system()
+        host = sys_.get("sub_domain") or sys_.get("hostname") or ""
+        port = sys_.get("sub_port") or 443
+        path = sys_.get("sub_path") or "/sub/"
+        scheme = "https" if sys_.get("sub_certificate") or port == 443 else "http"
+        if host: return (f"{scheme}://{host}:{port}{path}{subid}", None)
+        return (None, None)
+    def db_backup(self):
+        for d in ("/etc/pasarguard","/var/lib/pasarguard"):
+            if os.path.isdir(d):
+                for f in glob.glob(f"{d}/*.db"):
+                    dst = f"{f}.bak-pro-{int(time.time())}"
+                    try:
+                        shutil.copy(f, dst); return dst
+                    except Exception: pass
+        return None
 
-    urls = []
+def _detect_panel(force):
+    """force = '3xui' | 'marzban' | 'pasarguard' | 'auto'"""
+    cands = []
+    if force == "3xui":       cands = [Panel3xui]
+    elif force == "marzban":  cands = [PanelMarzban]
+    elif force == "pasarguard": cands = [PanelPasarguard]
+    else:                     cands = [Panel3xui, PanelMarzban, PanelPasarguard]
+
+    candidates = []
     if A.panel_url:
-        urls.append(A.panel_url.rstrip("/"))
+        candidates.append(A.panel_url.rstrip("/"))
     else:
         env = {}
         for p_env in ("/etc/x-ui/install-result.env", "/etc/3x-ui/install-result.env"):
@@ -639,8 +702,7 @@ def _detect_panel(force):
                     for l in open(p_env):
                         if "=" in l:
                             k, v = l.strip().split("=", 1); env[k] = v
-                except Exception:
-                    pass
+                except Exception: pass
                 break
         xp = env.get("XUI_PANEL_PORT")
         xb = env.get("XUI_WEB_BASE_PATH") or ""
@@ -650,23 +712,34 @@ def _detect_panel(force):
             xb = (re.search(r"webBasePath:\s*(\S+)", raw) or [None, xb])[1] or xb
         base_path = "/" + xb.strip("/") if xb and xb.strip("/") else ""
         if xp:
-            urls.append(f"http://127.0.0.1:{xp}{base_path}")
-            if base_path: urls.append(f"http://127.0.0.1:{xp}")
-        # Marzban default: 8000 (backend) — but Marzban uses 8000 for API too
-        urls.insert(0, "http://127.0.0.1:8000") if force == "marzban" else None
+            candidates.append(f"http://127.0.0.1:{xp}{base_path}")
+            if base_path: candidates.append(f"http://127.0.0.1:{xp}")
+        if force == "marzban":    candidates.insert(0, "http://127.0.0.1:8000")
+        if force == "pasarguard": candidates.insert(0, "http://127.0.0.1:8000")
         for pt in (2053, 2083, 2087, 2096, 8000, 8080, 8443, 9000, 3000, 5000, 1800, 1801):
-            urls.append(f"http://127.0.0.1:{pt}")
+            candidates.append(f"http://127.0.0.1:{pt}")
 
     seen, ordered = set(), []
-    for u in urls:
+    for u in candidates:
         if u not in seen: seen.add(u); ordered.append(u)
+
+    listening = set()
+    for l in sh("ss -H -tlnp").splitlines():
+        m = re.search(r":(\d+)\s", l) or re.search(r":(\d+)$", l)
+        if m:
+            try: listening.add(int(m.group(1)))
+            except: pass
+    if listening:
+        info(f"listening TCP ports: {sorted(listening)[:25]}")
 
     token = A.token or A.api_key or ""
     for cls in cands:
         for u in ordered:
+            pu = urllib.parse.urlparse(u)
+            if pu.port and pu.hostname in ("127.0.0.1", "localhost") and pu.port not in listening:
+                continue
             try:
                 p = cls(u, token, [])
-                # Marzban needs creds before probing meaningfully
                 if cls is PanelMarzban and not token and A.panel_user and A.panel_pass:
                     p.login(A.panel_user, A.panel_pass)
                 if p.probe():
@@ -678,7 +751,6 @@ def _detect_panel(force):
 # ═══════════════════════════════════════════════════════════════════════════
 #  MODE SELECTION + PANEL SUB-MENU
 # ═══════════════════════════════════════════════════════════════════════════
-# ★ clear screen on start
 clear_screen()
 
 print(f"{B}{C}{BANNER}{N}")
@@ -691,7 +763,7 @@ if A.scan:
 MODE_CHOICE = "install"
 if INTERACTIVE and not A.install:
     print(f"{B}What do you want to do?{N}")
-    print(f"  {B}1{N}) {G}Install Pro Configs{N}   {D}(3x-ui or Marzban){N}")
+    print(f"  {B}1{N}) {G}Install Pro Configs{N}   {D}(3x-ui / Marzban / Pasarguard){N}")
     print(f"  {B}2{N}) {C}Run the Proxy Scanner only{N}")
     print(f"  {B}3{N}) {Y}Both{N}")
     mc = ask("Choice", "1").strip().lower()
@@ -700,31 +772,30 @@ if MODE_CHOICE == "scan":
     clear_screen()
     run_scanner(); sys.exit(0)
 
-# ★ 3x-ui / Marzban sub-menu
 PANEL_FORCE = (A.panel or "").lower()
 if PANEL_FORCE in ("3xui","3x-ui"):   PANEL_FORCE = "3xui"
 elif PANEL_FORCE == "marzban":        PANEL_FORCE = "marzban"
-elif PANEL_FORCE == "auto":           PANEL_FORCE = ""
+elif PANEL_FORCE == "pasarguard":     PANEL_FORCE = "pasarguard"
 else:                                 PANEL_FORCE = ""
 
 if not PANEL_FORCE and INTERACTIVE and not A.install:
     print(f"\n{B}Which panel?{N}")
-    print(f"  {B}1{N}) {G}3x-ui{N}     {D}(full catalog: reality / tls / cdn / hysteria2 / pq / ss){N}")
-    print(f"  {B}2{N}) {C}Marzban{N}   {D}(no hysteria2, no finalmask; stick to reality + tls + ws){N}")
-    print(f"  {B}3{N}) {Y}Auto-detect{N}   {D}(tries 3x-ui first, then Marzban){N}")
+    print(f"  {B}1{N}) {G}3x-ui{N}        {D}(full catalog: reality / tls / cdn / hysteria2 / pq / ss){N}")
+    print(f"  {B}2{N}) {C}Marzban{N}      {D}(no hysteria2, no finalmask; reality + tls + ws only){N}")
+    print(f"  {B}3{N}) {M}Pasarguard{N}   {D}(full catalog like 3x-ui){N}" if False else
+          f"  {B}3{N}) {Y}Pasarguard{N}   {D}(full catalog like 3x-ui){N}")
+    print(f"  {B}4{N}) {Y}Auto-detect{N}   {D}(tries 3x-ui → Marzban → Pasarguard){N}")
     pc_choice = ask("Choice", "1").strip().lower()
-    PANEL_FORCE = {"1":"3xui","2":"marzban","3":""}.get(pc_choice, "3xui")
-if not PANEL_FORCE:
-    PANEL_FORCE = "auto"
+    PANEL_FORCE = {"1":"3xui","2":"marzban","3":"pasarguard","4":"auto"}.get(pc_choice, "3xui")
+if not PANEL_FORCE: PANEL_FORCE = "auto"
 
 # =========================================================================== panel
 head("Panel")
-PANEL = _detect_panel(PANEL_FORCE if PANEL_FORCE != "auto" else "auto")
+PANEL = _detect_panel(PANEL_FORCE)
 if not PANEL:
-    die(f"No supported panel found. "
-        f"Pass --panel 3xui|marzban --panel-url http://host:port [--token …]")
+    die("No supported panel found. "
+        "Pass --panel 3xui|marzban|pasarguard --panel-url http://host:port [--token …]")
 
-# Auth flow
 if PANEL.name == "3x-ui":
     if not PANEL.token:
         if not INTERACTIVE: die("3x-ui needs --token / --api-key.")
@@ -741,6 +812,14 @@ elif PANEL.name == "Marzban":
         if not PANEL.login(u, pw): die("Marzban login failed.")
     if not PANEL.probe():
         die("Marzban login did not produce a valid session.")
+elif PANEL.name == "Pasarguard":
+    if not PANEL.token:
+        if not INTERACTIVE: die("Pasarguard needs --token / --api-key.")
+        t = ask("Pasarguard API key (Settings > API Keys)")
+        if t: PANEL.token = t
+        else: die("no token — aborting")
+    if not PANEL.probe():
+        die("Pasarguard API key rejected.")
 
 XVER = PANEL.xray_version()
 info(f"panel {PANEL.name} at {PANEL.base} · xray {XVER}")
@@ -846,11 +925,8 @@ CATALOG = [
     ("ss",  f"{BRAND}🛟𝐒𝐡𝐚𝐝𝐨𝐰𝐬𝐨𝐜𝐤𝐬-𝟐𝟎𝟐𝟐", None, "Shadowsocks-2022"),
 ]
 avail = [c for c in CATALOG if c[2] is None or (c[2] == "tls" and CERT) or (c[2] == "cdn" and CDN)]
-
-# On Marzban, hide unsupported configs from the menu
 if PANEL.name == "Marzban":
-    unsupported = {"hy","pq","tpq"}
-    avail = [c for c in avail if c[0] not in unsupported]
+    avail = [c for c in avail if c[0] not in {"hy","pq","tpq"}]
 
 head("3/4  Which configs to add")
 for n, (k, name, _, desc) in enumerate(avail, 1):
@@ -1162,7 +1238,6 @@ for key, name, _, _ in SEL:
 if not added: die("Nothing could be added.")
 ADDED = dict(added)
 
-# remarkTemplate = 3x-ui only
 use_hosts = False
 if PANEL.name == "3x-ui":
     s = PANEL._http("/panel/api/setting/all", method="POST").get("obj") or {}
@@ -1209,7 +1284,7 @@ if not A.no_bbr and "bbr" not in sh("sysctl -n net.ipv4.tcp_congestion_control")
 info("restarting engine ...")
 PANEL.restart(); time.sleep(4)
 
-SUB, JSUB = PANEL.sub_urls(EMAIL if PANEL.name == "Marzban" else SUBID)
+SUB, JSUB = PANEL.sub_urls(EMAIL if PANEL.name in ("Marzban",) else SUBID)
 if not SUB:
     warn("subscription URL unavailable"); SUB = JSUB = "(n/a)"
 
