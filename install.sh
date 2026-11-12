@@ -110,7 +110,7 @@ def yes(q, default=True):
     return ask(q + (" (Y/n)" if default else " (y/N)"), "y" if default else "n").lower().startswith("y")
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  PART B — SCANNER + SELF-BOOTSTRAP
+#  SCANNER + SELF-BOOTSTRAP
 # ═══════════════════════════════════════════════════════════════════════════
 def _pipx_has(mod):
     try: return subprocess.run(["pipx","runpip",mod,"show",mod],
@@ -408,7 +408,7 @@ class PanelBase:
     name = "abstract"
     def __init__(self, base, token, resolve):
         self.base = base.rstrip("/"); self.token = token or ""; self.resolve = resolve
-    def _http(self, path, body=None, method=None, timeout=40):
+    def _http(self, path, body=None, method=None, timeout=20):
         c = ["curl","-sk","-m",str(timeout)] + self.resolve
         if self.token: c += ["-H", f"Authorization: Bearer {self.token}"]
         if body is not None:
@@ -436,7 +436,18 @@ class PanelBase:
 
 class Panel3xui(PanelBase):
     name = "3x-ui"
-    def probe(self): return self._http("/panel/api/inbounds/list").get("success") is True
+    def probe(self):
+        r = self._http("/panel/api/inbounds/list")
+        if r.get("success") is True:
+            return True
+        # endpoint exists but auth failed → still means panel is here
+        blob = json.dumps(r).lower()
+        if any(tok in blob for tok in ('"success":false', 'inbound', 'not authenticated',
+                                       'unauthorized', 'authorization', 'login')):
+            return True
+        # last resort: /status may respond before auth
+        s = json.dumps(self._http("/panel/api/server/status")).lower()
+        return "panelversion" in s or "xray" in s
     def _status(self): return self._http("/panel/api/server/status").get("obj") or {}
     def list_inbounds(self): return self._http("/panel/api/inbounds/list").get("obj") or []
     def add_inbound(self, remark, port, protocol, settings, stream, sniffing):
@@ -503,7 +514,11 @@ class PanelPasarguard(PanelBase):
     name = "Pasarguard"
     def probe(self):
         r = self._http("/api/system", method="GET")
-        return isinstance(r, dict) and any(k in r for k in ("version","hostname","xray_version","uptime"))
+        if isinstance(r, dict) and any(k in r for k in ("version","hostname","xray_version","uptime")):
+            return True
+        blob = json.dumps(r).lower()
+        return any(tok in blob for tok in ('unauthorized', 'not authenticated', 'detail',
+                                           'www-authenticate', 'token', 'fastapi'))
     def _system(self):
         r = self._http("/api/system", method="GET")
         return r if isinstance(r, dict) else {}
@@ -582,22 +597,49 @@ def _detect_panel():
     if force in ("3xui","3x-ui"):   cands = [Panel3xui]
     elif force == "pasarguard":     cands = [PanelPasarguard]
     else:                           cands = [Panel3xui, PanelPasarguard]
+
     urls = []
     if A.panel_url:
         urls.append(A.panel_url.rstrip("/"))
     else:
-        # 3x-ui from its own settings file
-        raw = re.sub(r"\x1b\[[0-9;]*m", "", sh("x-ui settings 2>/dev/null"))
-        xp = (re.search(r"port:\s*(\d+)", raw) or [None, None])[1]
-        xb = (re.search(r"webBasePath:\s*(\S+)", raw) or [None, ""])[1]
+        # (1) install-result.env written by x-ui/3x-ui installers
+        env = {}
+        for p_env in ("/etc/x-ui/install-result.env", "/etc/3x-ui/install-result.env"):
+            if os.path.exists(p_env):
+                try:
+                    for l in open(p_env):
+                        if "=" in l:
+                            k, v = l.strip().split("=", 1); env[k] = v
+                except Exception:
+                    pass
+                break
+        xp = env.get("XUI_PANEL_PORT")
+        xb = env.get("XUI_WEB_BASE_PATH") or ""
+        # (2) fall back to `x-ui settings`
+        if not xp:
+            raw = re.sub(r"\x1b\[[0-9;]*m", "", sh("x-ui settings 2>/dev/null"))
+            xp = (re.search(r"port:\s*(\d+)", raw) or [None, None])[1]
+            xb = (re.search(r"webBasePath:\s*(\S+)", raw) or [None, xb])[1] or xb
         base_path = "/" + xb.strip("/") if xb and xb.strip("/") else ""
-        if xp: urls.append(f"http://127.0.0.1:{xp}{base_path}")
-        if force == "pasarguard": urls.insert(0, "http://127.0.0.1:8000")
-        for pt in (2053, 2083, 2087, 2096, 8000, 8080, 8443, 9000, 3000, 5000):
+        if xp:
+            urls.append(f"http://127.0.0.1:{xp}{base_path}")
+            if base_path:
+                urls.append(f"http://127.0.0.1:{xp}")
+        # (3) Pasarguard hint when forced
+        if force == "pasarguard":
+            urls.insert(0, "http://127.0.0.1:8000")
+        # (4) common ports including 1800/1801 for your WSL setup
+        for pt in (2053, 2083, 2087, 2096, 8000, 8080, 8443, 9000, 3000, 5000, 1800, 1801):
             urls.append(f"http://127.0.0.1:{pt}")
+
+    seen = set(); ordered = []
+    for u in urls:
+        if u not in seen:
+            seen.add(u); ordered.append(u)
+
     token = A.token or A.api_key or ""
     for cls in cands:
-        for u in urls:
+        for u in ordered:
             try:
                 p = cls(u, token, [])
                 if p.probe():
@@ -644,6 +686,8 @@ if not PANEL.token:
     else: die("no token — aborting")
 if not PANEL.probe():
     die(f"Token rejected by {PANEL.name} at {PANEL.base}.")
+if not PANEL._http("/panel/api/inbounds/list").get("success") and PANEL.name == "3x-ui":
+    die("Token rejected by 3x-ui API.")
 
 XVER = PANEL.xray_version()
 info(f"panel {PANEL.name} at {PANEL.base} · xray {XVER}")
