@@ -141,22 +141,6 @@ flowchart LR
 
 ---
 
-## 🩺 بررسی سلامت
-
-```bash
-bash <(curl -Ls https://raw.githubusercontent.com/AyhanMansur/AyhanX-Direct/main/install.sh) --panel 3xui --health
-```
-
-همه کانفیگ‌های ساخته‌شده توسط اسکریپت را بررسی می‌کند. اگر پورتی باز نباشد، Xray را ری‌استارت می‌کند و دوباره بررسی می‌کند. کد خروج `0` یعنی همه سالم‌اند و `1` یعنی بعد از ری‌استارت هم مشکل باقی است. برای اجرای خودکار می‌توانید آن را در cron بگذارید.
-
-## 🗑️ حذف
-
-```bash
-bash <(curl -Ls https://raw.githubusercontent.com/AyhanMansur/AyhanX-Direct/main/install.sh) --panel 3xui --remove <EMAIL>
-```
-
-کلاینت و همه کانفیگ‌های ساخته‌شده توسط اسکریپت را حذف می‌کند. قبل از حذف تأیید می‌خواهد، مگر با `--yes`. inboundهای قبلی شما دست‌نخورده می‌مانند.
-
 ## 🔎 اسکنر
 
 از منو گزینه **۲** را انتخاب کنید، یا `--scan` بدهید:
@@ -181,49 +165,6 @@ bash <(curl -Ls https://raw.githubusercontent.com/AyhanMansur/AyhanX-Direct/main
   - Marzban و Pasarguard: فایل JSON از کانفیگ هسته در پوشه فعلی
 - 🔁 **یکی‌یکی**: هر inbound جداگانه اضافه و بررسی می‌شود. اگر Xray آن را رد کند، فقط همان برگشت داده می‌شود.
 - 🧰 **تغییرات سراسری فقط با تأیید شما**: `remarkTemplate` روی `{{HOST}}`، فعال‌سازی اشتراک JSON، و BBR.
-
----
-
-## 🤖 حالت غیرتعاملی
-
-```bash
-bash <(curl -Ls https://raw.githubusercontent.com/AyhanMansur/AyhanX-Direct/main/install.sh) --panel 3xui --token <API_TOKEN> \
-  --domain my.example.com --cdn cdn.example.com \
-  --configs all --clean 20 --ports auto --yes
-```
-
-```bash
-bash <(curl -Ls https://raw.githubusercontent.com/AyhanMansur/AyhanX-Direct/main/install.sh) --panel pasarguard \
-  --panel-url http://127.0.0.1:8000 \
-  --panel-user admin --panel-pass '<PASSWORD>' \
-  --domain my.example.com --configs tws,twst,rvpq --yes
-```
-
-<details>
-<summary><b>🚩 همه گزینه‌ها</b></summary>
-
-<br/>
-
-| گزینه | توضیح |
-|---|---|
-| `--panel` | `3xui`، `marzban` یا `pasarguard` |
-| `--panel-url` | آدرس پنل، مثلاً `http://127.0.0.1:8000` |
-| `--panel-user` / `--panel-pass` | ورود ادمین برای Marzban و Pasarguard |
-| `--token` / `--api-key` | توکن API برای 3x-ui و Pasarguard |
-| `--domain` / `--cdn` | دامنه مستقیم و دامنه CDN |
-| `--configs` | `all` یا لیست کلیدها مثل `tws,twst,rvpq` |
-| `--clean N` | تعداد آی‌پی‌های تمیز Cloudflare (۰–۳۰) |
-| `--ports` | `auto` یا `ask` برای تداخل پورت |
-| `--email` | نام کلاینت جدید |
-| `--dry-run` | نمایش برنامه بدون هیچ تغییری |
-| `--yes` | بدون پرسش |
-| `--no-bbr` / `--no-test` | رد کردن BBR / تست اتصال |
-| `--no-reality-scan` / `--fresh-reality-scan` | انتخاب هدف REALITY |
-| `--scan` / `--scan-limit` | اجرای اسکنر / محدودیت تعداد |
-| `--health` | بررسی سلامت و ری‌استارت خودکار |
-| `--remove EMAIL` | حذف کلاینت و کانفیگ‌های ساخته‌شده |
-
-</details>
 
 ---
 
