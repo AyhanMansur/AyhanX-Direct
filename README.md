@@ -1,19 +1,19 @@
 <div align="center">
 
-<img width="1856" height="930" alt="Screenshot 2026-11-12 013211" src="https://github.com/user-attachments/assets/9d314781-0c99-469b-b4a0-8fd34e17fa1b"/>
+<img width="1856" height="930" alt="AyhanX-Direct" src="https://github.com/user-attachments/assets/9d314781-0c99-469b-b4a0-8fd34e17fa1b"/>
 
 <a href="https://github.com/AyhanMansur/AyhanX-Direct">
-  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=22&pause=1200&color=24C6DC&center=true&vCenter=true&width=640&lines=One+command.+Ten+configs.;Reality+%7C+Hysteria2+%7C+CDN+%7C+PQ;Built-in+scanner+for+clean+IPs;Your+existing+inbounds+stay+untouched" alt="Typing animation"/>
+  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=22&pause=1200&color=24C6DC&center=true&vCenter=true&width=640&lines=One+script.+Three+panels.;Reality+%7C+Trojan+%7C+CDN+%7C+PQ;Built-in+scanner+and+health+check;Your+existing+inbounds+stay+untouched" alt="Typing animation"/>
 </a>
 
 <br/>
 
 [![Linux](https://img.shields.io/badge/Linux-Any-FCC624?logo=linux)](https://linux.org)
-[![Python](https://img.shields.io/badge/Bash%2B-3776AB?logo=Shell)](https://python.org)
-[![Xray](https://img.shields.io/badge/XrayCore-26%2B-3776AB?logo=Xray-Core)](https://python.org)
-[![License](https://img.shields.io/badge/License-MIT-yellow)](https://github.com/AyhanMansur/AyhanX-Direct/)
-[![Star](https://img.shields.io/github/stars/AyhanMansur/AyhanX-Torigato?style=social)](https://github.com/AyhanMansur/AyhanX-Direct/)
-[![Fork](https://img.shields.io/github/forks/AyhanMansur/AyhanX-Torigato?style=social)](https://github.com/AyhanMansur/AyhanX-Direct/)
+[![Shell](https://img.shields.io/badge/Bash%2BPython-3776AB?logo=python)](https://www.python.org)
+[![Xray](https://img.shields.io/badge/Xray--core-26%2B-blue)](https://github.com/XTLS/Xray-core)
+[![License](https://img.shields.io/badge/License-MIT-yellow)](https://github.com/AyhanMansur/AyhanX-Direct/blob/main/LICENSE)
+[![Star](https://img.shields.io/github/stars/AyhanMansur/AyhanX-Direct?style=social)](https://github.com/AyhanMansur/AyhanX-Direct/)
+[![Fork](https://img.shields.io/github/forks/AyhanMansur/AyhanX-Direct?style=social)](https://github.com/AyhanMansur/AyhanX-Direct/)
 
 </div>
 
@@ -21,23 +21,28 @@
 
 ## 🌟 درباره پروژه
 
-**AyhanX-Direct** با یک دستور، یک بسته کامل و حرفه‌ای از کانفیگ‌های مقاوم در برابر سانسور را به **پنل موجود شما** اضافه می‌کند.
+**AyhanX-Direct** با یک اسکریپت، مجموعه‌ای از کانفیگ‌های مقاوم در برابر سانسور را به **پنل موجود شما** اضافه می‌کند. پنل‌های **3x-ui**، **Pasarguard** و **Marzban** پشتیبانی می‌شوند.
 
-> 🔒 **هیچ چیزی حذف یا ویرایش نمی‌شود.** هیچ inbound، کلاینت یا هاستی دست نمی‌خورد.
+> 🔒 **هیچ چیزی حذف یا ویرایش نمی‌شود.** هیچ inbound، کلاینت یا هاستی که از قبل وجود داشته دست نمی‌خورد.
 
 این پروژه فورکی از [pdnczone/3x-ui-pro-configs](https://github.com/pdnczone/3x-ui-pro-configs) است که قابلیت‌های جدیدی دارد:
 
 | | قابلیت‌های جدید در AyhanX-Direct |
 |---|---|
-| 🔎 | **اسکنر**: [توضیح دهید: آی‌پی تمیز / پورت / SNI] |
-| 🧩 | **پشتیبانی از چند پنل**: [3x-ui، Marzban، ...] |
+| 🧩 | **چند پنل**: 3x-ui، Pasarguard، Marzban |
+| 🗄️ | **تشخیص خودکار 3x-ui** از پایگاه داده |
+| 🔎 | **اسکنر** برای رنج IP و لیست دامنه |
+| 🩺 | **بررسی سلامت** با ری‌استارت خودکار Xray |
+| 🗑️ | **حذف کلاینت** و کانفیگ‌های ساخته‌شده توسط اسکریپت |
+
 ---
 
-## ⚡ نصب سریع
+## ⚡ شروع سریع
 
-روی سرور به‌صورت **root** اجرا کنید:
+روی سرور با دسترسی **root** اجرا کنید:
 
 ```bash
+sudo -i
 bash <(curl -Ls https://raw.githubusercontent.com/AyhanMansur/AyhanX-Direct/main/install.sh)
 ```
 
@@ -47,8 +52,9 @@ flowchart LR
     B --> C[☁️ دامنه CDN]
     C --> D[📦 انتخاب کانفیگ‌ها]
     D --> E[🧊 آی‌پی‌های تمیز]
-    E --> F[✅ تست خودکار]
-    F --> G[🔗 لینک اشتراک]
+    E --> F[🔌 بررسی پورت‌ها]
+    F --> G[✅ افزودن و تست]
+    G --> H[🔗 لینک اشتراک]
 ```
 
 <details>
@@ -56,11 +62,13 @@ flowchart LR
 
 <br/>
 
-1. **ورود به پنل**: توکن API (از Settings › API Tokens) یا نام کاربری و رمز عبور.
-2. **دامنه شما**: مستقیماً به سرور اشاره می‌کند (ابر خاکستری Cloudflare). اگر گواهی ندارید، می‌تواند گواهی Let's Encrypt صادر کند.
-3. **دامنه CDN**: زیردامنه‌ای پشت Cloudflare (ابر نارنجی)، حالت SSL/TLS روی **Full**.
-4. **کانفیگ‌ها**: از منو انتخاب کنید (شماره‌ها با کاما جدا شده، یا `all`).
-5. **تعداد آی‌پی تمیز Cloudflare**: پیش‌فرض `20`.
+1. **کاری که می‌خواهید انجام دهید**: نصب کانفیگ، فقط اسکنر، یا هر دو.
+2. **پنل**: 3x-ui، Pasarguard، Marzban، یا تشخیص خودکار.
+3. **ورود به پنل**: توکن API (از Settings › API Tokens) یا نام کاربری و رمز.
+4. **دامنه شما**: باید مستقیم به سرور اشاره کند (ابر خاکستری Cloudflare). اگر گواهی ندارید، می‌تواند با Let's Encrypt صادر کند.
+5. **دامنه CDN** (اختیاری): پشت Cloudflare با ابر نارنجی و حالت SSL/TLS روی **Full**.
+6. **کانفیگ‌ها**: شماره‌ها با کاما، یا `all`.
+7. **تعداد آی‌پی‌های تمیز**: پیش‌فرض `20`، حداکثر `30`.
 
 </details>
 
@@ -68,134 +76,188 @@ flowchart LR
 
 ## 📦 کانفیگ‌ها
 
-| | کانفیگ | توضیح |
-|:-:|---|---|
-| ⚡ | **Reality Vision** | کانفیگ اصلی، سریع‌ترین و مخفی‌ترین |
-| 🌀 | **Reality XHTTP** | REALITY روی XHTTP با padding |
-| 🔷 | **Reality gRPC** | REALITY روی gRPC |
-| 🔐 | **TLS Vision** | گواهی واقعی، به‌همراه 🧩 Fragment و 6️⃣ نسخه‌های IPv6 |
-| 🛰 | **TLS XHTTP** | مستقیم و از طریق CDN |
-| 🌐 | **CDN WS** | از طریق Cloudflare، به‌همراه 🧊 آی‌پی‌های تمیز |
-| 🔗 | **CDN HTTPUpgrade** | از طریق Cloudflare |
-| 🚄 | **Hysteria2** | UDP/QUIC با FinalMask Salamander |
-| 🧬 | **PQ Sudoku** | VLESS پسا‌کوانتومی با FinalMask Sudoku *(آزمایشی)* |
-| 🛟 | **Shadowsocks-2022** | پشتیبان |
+| کلید | کانفیگ | پروتکل | نیاز |
+|:-:|---|---|---|
+| `tws` | 👾 Trojan • WS | Trojan روی WebSocket | گواهی TLS |
+| `twst` | 👾 Trojan • WS • TLS | Trojan روی WebSocket با TLS | گواهی TLS |
+| `twsp` | 🧬 Trojan • WS • PQ | Trojan روی WebSocket با Sudoku | Xray 26 |
+| `twstp` | 🧬 Trojan • WS • TLS • PQ | همان بالا با TLS | گواهی + Xray 26 |
+| `thu` | 👾 Trojan • HU • Plain | Trojan روی HTTPUpgrade | — |
+| `tch` | 👾 Trojan • HU • CDN | Trojan روی HTTPUpgrade از طریق Cloudflare | دامنه CDN |
+| `tcht` | 👾 Trojan • HU • CDN • TLS | همان بالا با TLS | گواهی + دامنه CDN |
+| `trxp` | 👾 Trojan • REALITY • XHTTP | Trojan با REALITY | — |
+| `trgp` | 👾 Trojan • REALITY • gRPC | Trojan با REALITY | — |
+| `rvpq` | 🧬 Reality • Vision • PQ | VLESS + REALITY (TCP) با کلید پسا‌کوانتومی | Xray 26 |
+| `rxpq` | 🧬 Reality • XHTTP • PQ | VLESS + REALITY (XHTTP) با کلید پسا‌کوانتومی | Xray 26 |
+| `rgpq` | 🧬 Reality • gRPC • PQ | VLESS + REALITY (gRPC) با کلید پسا‌کوانتومی | Xray 26 |
 
-### 🎭 FinalMask
+> ⚠️ کانفیگ‌های REALITY + PQ (`rvpq`، `rxpq`، `rgpq`) هنوز روی پنل زنده تأیید نشده‌اند.
 
-| ماسک | کجا | چه کار می‌کند |
+<details>
+<summary><b>🧩 پنل‌های پشتیبانی‌شده</b></summary>
+
+<br/>
+
+| پنل | روش ورود | وضعیت |
 |---|---|---|
-| **Fragment** | کانفیگ‌های TLS و CDN (سمت کلاینت) | ClientHello را به قطعات تقسیم می‌کند |
-| **Salamander** | Hysteria2 | ترافیک QUIC را مبهم می‌کند |
-| **Sudoku** | PQ | دست‌دادن پسا‌کوانتومی را پنهان می‌کند |
+| **3x-ui 3.x** | توکن API یا نام کاربری/رمز | ✅ پشتیبانی کامل |
+| **Pasarguard** | نام کاربری/رمز ادمین | ✅ همه کانفیگ‌ها |
+| **Marzban** | نام کاربری/رمز ادمین | ⚠️ بدون کانفیگ‌های PQ و REALITY؛ روی پنل زنده کامل تست نشده |
 
-همه کانفیگ‌ها زیر **یک کلاینت جدید** با **یک لینک اشتراک** قرار می‌گیرند. اگر IPv6 سرور کار کند، نسخه IPv6 هم ساخته می‌شود.
+</details>
 
-> 💡 برای کانفیگ‌های FinalMask از **اشتراک JSON** با کلاینت **Xray-core 26** (v2rayNG یا v2rayN جدید) استفاده کنید. Hysteria2 + Salamander در Hiddify و NekoBox هم کار می‌کند.
+---
 
-```bash
-```
+## 🔧 پیش‌نیازها
 
-## 🧩 پنل‌های پشتیبانی‌شده
-
-| پنل | نسخه | وضعیت |
-|---|---|---|
-| **3x-ui** | 3.x (Clients و Hosts) | ✅ پشتیبانی می‌شود |
-| [پنل ۲] | [نسخه] | [وضعیت] |
-| [پنل ۳] | [نسخه] | [وضعیت] |
-
-### پیش‌نیازها
-
-- Ubuntu یا Debian با `python3`، `curl`، `openssl`
-- **Xray-core 26.x** (اگر نباشد، FinalMask، Hysteria2 و PQ به‌طور خودکار رد می‌شوند)
-- پورت‌هایی که در پایان نصب نمایش داده می‌شوند را در فایروال ابری خود باز کنید (IPv4 + IPv6، و UDP برای Hysteria2)
+- Ubuntu یا Debian (یا هر توزیعی با `apt`، `dnf`، `yum`، `apk` یا `pacman`)
+- `python3`، `curl`، `openssl`، `iproute2`
+- برای کانفیگ‌های PQ و REALITY: **Xray-core 26.x**
+- پورت‌هایی که در پایان نصب نمایش داده می‌شوند را در فایروال ابری باز کنید (TCP، و UDP برای Hysteria)
 
 ---
 
 ## ⚙️ تداخل پورت‌ها
 
-دو inbound هرگز نمی‌توانند یک پورت را به اشتراک بگذارند. اسکریپت ابتدا هر inbound پنل و هر برنامه روی سرور را بررسی می‌کند. اگر پورتی اشغال باشد، به شما می‌گوید چه کسی از آن استفاده می‌کند:
+دو inbound نمی‌توانند یک پورت را به اشتراک بگذارند. اسکریپت قبل از افزودن هر کانفیگ، inboundهای پنل و برنامه‌های در حال اجرا را بررسی می‌کند و صاحب پورت اشغال‌شده را نشان می‌دهد:
 
 | کلید | عملکرد |
 |:-:|---|
 | `Enter` | پورت آزاد بعدی را انتخاب می‌کند *(پیشنهادی)* |
 | `123` | پورت دلخواه شما (اگر اشغال باشد رد می‌شود) |
-| `o` | **حالت Origin Rule** (فقط CDN): کلاینت از 443 استفاده می‌کند، Cloudflare به هر پورت آزادی فوروارد می‌کند |
-| `s` | این کانفیگ را رد کن، inbound شما همان‌طور که هست می‌ماند |
+| `o` | **Origin Rule** (فقط CDN): کلاینت از 443 استفاده می‌کند و Cloudflare به پورت آزاد فوروارد می‌کند |
+| `s` | این کانفیگ را رد کن؛ inbound شما دست‌نخورده می‌ماند |
 
 <details>
 <summary><b>📌 نکات</b></summary>
 
 <br/>
 
-- **CDN**: Cloudflare فقط پورت‌های `443 2053 2083 2087 2096 8443` را پروکسی می‌کند. اگر همه اشغال باشند، از `o` استفاده کنید. اسکریپت قانون دقیقی را که باید در *Rules › Origin Rules* اضافه کنید چاپ می‌کند:
-  `Hostname = cdn… AND URI Path starts with /…  →  Destination port = …`
-- **REALITY روی 443**: اگر 443 استفاده شده باشد، کانفیگ جدید پورت دیگری می‌گیرد. برای استفاده از 443، inbound قدیمی را در پنل جابه‌جا کنید و اسکریپت را دوباره اجرا کنید.
+- **CDN**: Cloudflare فقط پورت‌های `443 2053 2083 2087 2096 8443` را پروکسی می‌کند. اگر همه اشغال باشند، از `o` استفاده کنید. اسکریپت قانونی را که باید در *Rules › Origin Rules* بسازید چاپ می‌کند.
+- **REALITY روی 443**: اگر 443 اشغال باشد، کانفیگ پورت دیگری می‌گیرد.
 - **حالت خودکار**: `--ports auto` (یا `--yes`) همیشه پورت آزاد بعدی را می‌گیرد. کانفیگ CDN بدون پورت آزاد Cloudflare رد می‌شود.
 
 </details>
 
 ---
 
+## 🩺 بررسی سلامت
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/AyhanMansur/AyhanX-Direct/main/install.sh) --panel 3xui --health
+```
+
+همه کانفیگ‌های ساخته‌شده توسط اسکریپت را بررسی می‌کند. اگر پورتی باز نباشد، Xray را ری‌استارت می‌کند و دوباره بررسی می‌کند. کد خروج `0` یعنی همه سالم‌اند و `1` یعنی بعد از ری‌استارت هم مشکل باقی است. برای اجرای خودکار می‌توانید آن را در cron بگذارید.
+
+## 🗑️ حذف
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/AyhanMansur/AyhanX-Direct/main/install.sh) --panel 3xui --remove <EMAIL>
+```
+
+کلاینت و همه کانفیگ‌های ساخته‌شده توسط اسکریپت را حذف می‌کند. قبل از حذف تأیید می‌خواهد، مگر با `--yes`. inboundهای قبلی شما دست‌نخورده می‌مانند.
+
+## 🔎 اسکنر
+
+از منو گزینه **۲** را انتخاب کنید، یا `--scan` بدهید:
+
+- اسکن **IPv4** یا **IPv6** روی رنج‌ها، یا اسکن **لیست دامنه**
+- محدودیت تعداد با `--scan-limit`
+- ساخت لینک از روی یک قالب **vless، vmess، trojan، ss یا hysteria** برای هر آی‌پی فعال
+- خروجی آی‌پی‌های تمیز در `clean-ips.txt`
+
+## 🧊 آی‌پی‌های تمیز
+
+اگر دامنه CDN داشته باشید، آی‌پی‌های فعال از طریق Cloudflare با همان دامنه تست می‌شوند و فقط آدرس‌هایی با پاسخ زیر ۱۵۰۰ میلی‌ثانیه نگه داشته می‌شوند. اگر `clean-ips.txt` محلی وجود داشته باشد از همان استفاده می‌شود، وگرنه از مخزن دانلود می‌شود.
+
+> ⚠️ نتایج بسته به شبکه (موبایل، خانگی یا دیتاسنتر) متفاوت است. اگر آی‌پی‌ای پیدا کردید که خوب کار می‌کند، Pull Request بفرستید!
+
+---
+
 ## 🛡 امنیت
 
-- 💾 **اول پشتیبان‌گیری**: `/etc/x-ui/x-ui.db.bak-pro-*`
-- 🔁 **یکی‌یکی**: هر inbound بلافاصله اضافه و تأیید می‌شود. اگر Xray آن را رد کند، فقط همان inbound برگشت داده می‌شود.
-- 🧰 **حداقل تغییرات سراسری**، هر دو فقط افزودنی:
-  - فعال‌سازی اشتراک JSON
-  - تنظیم `remarkTemplate` روی `{{HOST}}` (اول از شما پرسیده می‌شود)
+- 💾 **پشتیبان قبل از تغییر**:
+  - 3x-ui: `/etc/x-ui/x-ui.db.bak-pro-*`
+  - Marzban و Pasarguard: فایل JSON از کانفیگ هسته در پوشه فعلی
+- 🔁 **یکی‌یکی**: هر inbound جداگانه اضافه و بررسی می‌شود. اگر Xray آن را رد کند، فقط همان برگشت داده می‌شود.
+- 🧰 **تغییرات سراسری فقط با تأیید شما**: `remarkTemplate` روی `{{HOST}}`، فعال‌سازی اشتراک JSON، و BBR.
 
 ---
 
 ## 🤖 حالت غیرتعاملی
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/AyhanMansur/AyhanX-Direct/main/install.sh) \
-  --yes --token <API_TOKEN> --domain my.example.com --cdn cdn.example.com --configs all --clean 20
+bash <(curl -Ls https://raw.githubusercontent.com/AyhanMansur/AyhanX-Direct/main/install.sh) --panel 3xui --token <API_TOKEN> \
+  --domain my.example.com --cdn cdn.example.com \
+  --configs all --clean 20 --ports auto --yes
 ```
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/AyhanMansur/AyhanX-Direct/main/install.sh) --panel pasarguard \
+  --panel-url http://127.0.0.1:8000 \
+  --panel-user admin --panel-pass '<PASSWORD>' \
+  --domain my.example.com --configs tws,twst,rvpq --yes
+```
+
+<details>
+<summary><b>🚩 همه گزینه‌ها</b></summary>
+
+<br/>
 
 | گزینه | توضیح |
 |---|---|
-| `--configs` | `all` یا لیست: `rv,rx,rg,tv,tx,ws,hu,hy,pq,ss` |
-| `--clean N` | تعداد کانفیگ‌های آی‌پی تمیز Cloudflare (۰–۳۰) |
-| `--ports auto\|ask` | رفتار در تداخل پورت |
-| `--email E` | نام کلاینت جدید |
-| `--dry-run` | نمایش برنامه، بدون هیچ تغییری |
-| `--no-bbr`، `--no-test` | رد کردن BBR / رد کردن تست اتصال |
-| `[--panel X]` | [نوع پنل، اگر اضافه کرده‌اید] |
-| `[--scan]` | [اجرای اسکنر، اگر اضافه کرده‌اید] |
+| `--panel` | `3xui`، `marzban` یا `pasarguard` |
+| `--panel-url` | آدرس پنل، مثلاً `http://127.0.0.1:8000` |
+| `--panel-user` / `--panel-pass` | ورود ادمین برای Marzban و Pasarguard |
+| `--token` / `--api-key` | توکن API برای 3x-ui و Pasarguard |
+| `--domain` / `--cdn` | دامنه مستقیم و دامنه CDN |
+| `--configs` | `all` یا لیست کلیدها مثل `tws,twst,rvpq` |
+| `--clean N` | تعداد آی‌پی‌های تمیز Cloudflare (۰–۳۰) |
+| `--ports` | `auto` یا `ask` برای تداخل پورت |
+| `--email` | نام کلاینت جدید |
+| `--dry-run` | نمایش برنامه بدون هیچ تغییری |
+| `--yes` | بدون پرسش |
+| `--no-bbr` / `--no-test` | رد کردن BBR / تست اتصال |
+| `--no-reality-scan` / `--fresh-reality-scan` | انتخاب هدف REALITY |
+| `--scan` / `--scan-limit` | اجرای اسکنر / محدودیت تعداد |
+| `--health` | بررسی سلامت و ری‌استارت خودکار |
+| `--remove EMAIL` | حذف کلاینت و کانفیگ‌های ساخته‌شده |
+
+</details>
 
 ---
 
-## 🧊 آی‌پی‌های تمیز
+## ⚠️ محدودیت‌ها
 
-لیست در فایل `clean-ips.txt` قرار دارد. هر بار اجرا آن را دانلود می‌کند، هر آدرس را از طریق Cloudflare با **دامنه CDN شما** تست می‌کند و فقط سالم‌ها را نگه می‌دارد.
+- Marzban روی پنل زنده کامل تست نشده است.
+- کانفیگ‌های REALITY + PQ هنوز روی پنل زنده تأیید نشده‌اند.
+- حذف کلاینت در 3x-ui از `/panel/api/clients/del/` استفاده می‌کند که در همه نسخه‌ها تأیید نشده است.
+- اگر Marzban لینک اشتراک نسبی بدهد، آدرس از دامنه یا IP سرور ساخته می‌شود؛ ممکن است لازم باشد `XRAY_SUBSCRIPTION_URL_PREFIX` را در `.env` پنل تنظیم کنید.
+- Cloudflare فقط پورت‌های `443 2053 2083 2087 2096 8443` را پروکسی می‌کند.
 
-> ⚠️ این آدرس‌ها از ۵ نود تست در ایران (دیتاسنترهای تهران) در دسترس بودند. اتصالات موبایل یا خانگی ممکن است متفاوت باشد. آی‌پی‌هایی پیدا کردید که برایتان کار می‌کند؟ Pull Request بفرستید!
+---
 
 ## 🔗 **لینک‌های مفید**
 
 | منبع | آدرس |
-| --- | --- |
-| مخزن پروژه | [AyhanMansur/Xui-Panel](https://github.com/AyhanMansur/AyhanX-Direct) |
-| مخزن پروژه اصلی | [pdnczone/3x-ui-pro-config](https://github.com/pdnczone/3x-ui-pro-configs) |
-| پنل اصلی 3X-UI | [MHSanaei/3x-ui](https://github.com/mhsanaei/3x-ui) |
+|---|---|
+| مخزن این پروژه | [AyhanMansur/AyhanX-Direct](https://github.com/AyhanMansur/AyhanX-Direct) |
+| مخزن پروژه اصلی | [pdnczone/3x-ui-pro-configs](https://github.com/pdnczone/3x-ui-pro-configs) |
+| پنل 3x-ui | [MHSanaei/3x-ui](https://github.com/MHSanaei/3x-ui) |
 
 ---
 
 ## 🤝 **مشارکت!**
 
-اگر ایده‌ای برای بهبود دارید، خوشحال می‌شویم:
-
 * یک **Issue** باز کنید
 * یک **Pull Request** بفرستید
-* یا حتی یک **Star** ⭐ بدهید تا دیگران هم آن را پیدا کنند!
+* یا یک **Star** ⭐ بدهید تا دیگران هم پیدا کنند!
 
 ---
 
 ## 📜 **مجوز**
 
-این پروژه تحت مجوز **MIT** منتشر شده است — آزاد برای استفاده، تغییر و توزیع.
+این پروژه تحت مجوز **MIT** منتشر شده است: آزاد برای استفاده، تغییر و توزیع.
 
 ---
 
