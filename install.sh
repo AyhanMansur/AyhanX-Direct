@@ -1,1754 +1,2335 @@
 #!/usr/bin/env bash
-# =============================================================================
-#  3x-ui Pro Configs + Proxy Scanner  —  VLESS / Trojan (3x-ui · Marzban · Pasarguard)  [final]
-#  Repo: https://github.com/AyhanMansur/AyhanX-Direct
-# =============================================================================
+# ============================================================================
+#   AyhanX-Agent · terminal + web client for cloud & local LLMs
+#   Repository:  https://github.com/AyhanMansur/AyhanX-Agent
+#   Version:     4.0.0
+#
+#   Usage:
+#     ./ai.sh                    chat (terminal)
+#     ./ai.sh web [port]         launch web UI at http://localhost:8080
+#     ./ai.sh switch <name>      switch provider and exit
+#     ./ai.sh ask "prompt"       one-shot answer
+#     ./ai.sh health             test the API connection
+#     ./ai.sh config             show file locations
+#     ./ai.sh version            print version
+# ============================================================================
 set -euo pipefail
-[ "$(id -u)" = "0" ] || { echo "Please run as root (sudo -i)."; exit 1; }
 
-PKG=""; PKG_NAME=""
-if   command -v apt-get >/dev/null; then PKG="apt-get install -y"; PKG_NAME="apt"
-elif command -v apt     >/dev/null; then PKG="apt install -y";     PKG_NAME="apt"
-elif command -v dnf     >/dev/null; then PKG="dnf install -y";     PKG_NAME="dnf"
-elif command -v yum     >/dev/null; then PKG="yum install -y";     PKG_NAME="yum"
-elif command -v apk     >/dev/null; then PKG="apk add --no-cache"; PKG_NAME="apk"
-elif command -v pacman  >/dev/null; then PKG="pacman -S --noconfirm"; PKG_NAME="pacman"
+VERSION="4.0.0"
+REPO_URL="https://github.com/AyhanMansur/AyhanX-Agent"
+APP_DIR="${HOME}/.ai_platform"
+VENV="${APP_DIR}/.venv"
+RUNNER_DIR="${APP_DIR}/runner"
+CONFIG_FILE="${APP_DIR}/config.json"
+ENV_FILE="${APP_DIR}/.env"
+HISTORY_FILE="${APP_DIR}/history.txt"
+CHATS_DIR="${APP_DIR}/chats"
+LOG_FILE="${APP_DIR}/install.log"
+PROVIDER_FILE="${APP_DIR}/provider"
+PROVIDERS_FILE="${APP_DIR}/providers.json"
+export AI_RUNNER_VERSION="$VERSION"
+
+# ---------- palette ----------
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+  E=$'\e'
+  V1="${E}[38;5;44m"; V2="${E}[38;5;30m"; C1="${E}[38;5;51m"
+  PK="${E}[38;5;213m"; GD="${E}[38;5;221m"; MT="${E}[38;5;245m"
+  OK="${E}[38;5;84m"; ER="${E}[38;5;203m"
+  BD="${E}[1m"; DM="${E}[2m"; RS="${E}[0m"
+else
+  E= V1= V2= C1= PK= GD= MT= OK= ER= BD= DM= RS=
 fi
-need() {
-    local bin="$1" pkg="${2:-$1}"
-    if ! command -v "$bin" >/dev/null 2>&1; then
-        if [ -n "$PKG" ]; then
-            echo "[!] installing $pkg via $PKG_NAME …"
-            $PKG "$pkg" >/dev/null 2>&1 || true
-        fi
-        command -v "$bin" >/dev/null 2>&1 || { echo "[x] missing $bin ($pkg) — install it and retry"; exit 1; }
+
+cleanup() {
+  local code=$?
+  printf '%s' "$RS" 2>/dev/null || true
+  stty sane 2>/dev/null || true
+  exit "$code"
+}
+trap cleanup EXIT INT TERM
+
+# ============================================================================
+#  PROVIDER HELPERS
+# ============================================================================
+is_local_provider() {
+  case "$1" in
+    ollama|lmstudio|vllm|llamacpp|localai) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+provider_of_key() {
+  case "${1:-}" in
+    sk-or-*)  echo "openrouter" ;;
+    gsk_*)    echo "groq" ;;
+    sk-*)     echo "deepseek" ;;
+    AIza*|AQ.*) echo "google" ;;
+    *)        echo "" ;;
+  esac
+}
+
+provider_url() {
+  case "$1" in
+    openrouter) echo "https://openrouter.ai/api/v1" ;;
+    groq)       echo "https://api.groq.com/openai/v1" ;;
+    google)     echo "https://generativelanguage.googleapis.com/v1beta/openai" ;;
+    ollama)     echo "${OLLAMA_URL:-http://localhost:11434/v1}" ;;
+    lmstudio)   echo "${LMSTUDIO_URL:-http://localhost:1234/v1}" ;;
+    vllm)       echo "${VLLM_URL:-http://localhost:8000/v1}" ;;
+    llamacpp)   echo "${LLAMACPP_URL:-http://localhost:8080/v1}" ;;
+    localai)    echo "${LOCALAI_URL:-http://localhost:8080/v1}" ;;
+    *)          echo "https://api.deepseek.com" ;;
+  esac
+}
+
+provider_default_model() {
+  case "$1" in
+    openrouter) echo "deepseek/deepseek-chat" ;;
+    groq)       echo "llama-3.3-70b-versatile" ;;
+    google)     echo "gemini-2.5-flash" ;;
+    ollama)     echo "qwen2.5:3b" ;;
+    lmstudio|vllm|llamacpp|localai) echo "local-model" ;;
+    *)          echo "deepseek-chat" ;;
+  esac
+}
+
+provider_label() {
+  case "$1" in
+    openrouter) echo "OpenRouter" ;;
+    groq)       echo "Groq" ;;
+    google)     echo "Google AI Studio" ;;
+    ollama)     echo "Ollama" ;;
+    lmstudio)   echo "LM Studio" ;;
+    vllm)       echo "vLLM" ;;
+    llamacpp)   echo "llama.cpp" ;;
+    localai)    echo "LocalAI" ;;
+    *)          echo "DeepSeek" ;;
+  esac
+}
+
+probe_local() {
+  local url="$1"
+  timeout 2 curl -sSf -H "Authorization: Bearer local" \
+    "${url%/}/models" 2>/dev/null | grep -q '"id"'
+}
+
+detect_local() {
+  local pair name url
+  for pair in \
+    "ollama:${OLLAMA_URL:-http://localhost:11434/v1}" \
+    "lmstudio:${LMSTUDIO_URL:-http://localhost:1234/v1}" \
+    "vllm:${VLLM_URL:-http://localhost:8000/v1}" \
+    "llamacpp:${LLAMACPP_URL:-http://localhost:8080/v1}" \
+    "localai:${LOCALAI_URL:-http://localhost:8080/v1}"
+  do
+    name="${pair%%:*}"; url="${pair#*:}"
+    if probe_local "$url"; then echo "$name"; return 0; fi
+  done
+  return 1
+}
+
+# ============================================================================
+#  UI PRIMITIVES
+# ============================================================================
+term_width() {
+  local w="${COLUMNS:-}"
+  [[ -z "$w" ]] && w="$(tput cols 2>/dev/null || echo 80)"
+  (( w > 96 )) && w=96; (( w < 50 )) && w=50
+  echo "$w"
+}
+
+rule() {
+  local w; w="$(term_width)"
+  local line="" i
+  for (( i = 0; i < w - 4; i++ )); do line+="─"; done
+  printf '  %s%s%s%s\n' "$DM" "$V2" "$line" "$RS"
+}
+
+section() { printf '\n  %s%s▍%s %s%s%s\n' "$BD" "$V1" "$RS" "$BD" "$*" "$RS"; }
+ok()      { printf '  %s✔%s %s\n' "$OK" "$RS" "$*"; }
+warn()    { printf '  %s!%s %s\n' "$GD" "$RS" "$*"; }
+err()     { printf '  %s✘%s %s\n' "$ER" "$RS" "$*" >&2; }
+info()    { printf '  %s·%s %s%s%s\n' "$MT" "$RS" "$MT" "$*" "$RS"; }
+
+spin() {
+  local msg="$1"; shift
+  local frames=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏) i=0 rc=0 pid
+  mkdir -p "$APP_DIR"
+  if [[ ! -t 1 ]]; then
+    if "$@" >>"$LOG_FILE" 2>&1; then ok "$msg"; return 0; fi
+    err "$msg failed (log: $LOG_FILE)"; return 1
+  fi
+  "$@" >>"$LOG_FILE" 2>&1 &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    printf '\r  %s%s%s %s%s\033[K' "$PK" "${frames[i % 10]}" "$RS" "$msg" ""
+    i=$(( i + 1 )); sleep 0.08
+  done
+  wait "$pid" || rc=$?
+  if (( rc == 0 )); then
+    printf '\r  %s✔%s %s\033[K\n' "$OK" "$RS" "$msg"
+  else
+    printf '\r  %s✘%s %s\033[K\n' "$ER" "$RS" "$msg"
+    info "log: $LOG_FILE"
+  fi
+  return "$rc"
+}
+
+print_logo() {
+  local lines=(
+'     ░███               ░██                              ░██    ░██            ░███                                        ░██    '
+'  ░██░██              ░██                               ░██  ░██            ░██░██                                       ░██    '
+' ░██  ░██  ░██    ░██ ░████████   ░██████   ░████████    ░██░██            ░██  ░██   ░████████  ░███████  ░████████  ░████████ '
+'░█████████ ░██    ░██ ░██    ░██       ░██  ░██    ░██    ░███    ░██████ ░█████████ ░██    ░██ ░██    ░██ ░██    ░██    ░██    '
+'░██    ░██ ░██    ░██ ░██    ░██  ░███████  ░██    ░██   ░██░██           ░██    ░██ ░██    ░██ ░█████████ ░██    ░██    ░██    '
+'░██    ░██ ░██   ░███ ░██    ░██ ░██   ░██  ░██    ░██  ░██  ░██          ░██    ░██ ░██   ░███ ░██        ░██    ░██    ░██    '
+'░██    ░██  ░█████░██ ░██    ░██  ░█████░██ ░██    ░██ ░██    ░██         ░██    ░██  ░█████░██  ░███████  ░██    ░██     ░████ '
+'                  ░██                                                                       ░██                                 '
+'            ░███████                                                                  ░░███████                                '
+  )
+  local ramp=(30 36 37 43 44 80 87)
+  local max=0 l
+  for l in "${lines[@]}"; do (( ${#l} > max )) && max=${#l}; done
+  echo
+  for l in "${lines[@]}"; do
+    local out="" j c n=${#l}
+    if [[ -z "$E" ]]; then printf '%s\n' "$l"; continue; fi
+    for (( j = 0; j < n; j++ )); do
+      c=${ramp[$(( j * ${#ramp[@]} / max ))]}
+      out+="${E}[1;38;5;${c}m${l:j:1}"
+    done
+    printf '%s%s\n' "$out" "$RS"
+  done
+  echo
+}
+
+print_tagline() {
+  local provider="${AYHANX_PROVIDER:-deepseek}"
+  printf '  %s◆%s %s%sAyhanX-Agent%s  %s· %s · v%s%s\n' \
+    "$V1" "$RS" "$BD" "$V1" "$RS" "$MT" "$(provider_label "$provider")" "$VERSION" "$RS"
+  rule
+}
+
+print_outro() {
+  echo; rule
+  printf '  %s◆%s %sthanks for using AyhanX-Agent%s\n' "$V1" "$RS" "$BD" "$RS"
+  printf '  %s%s%s\n\n' "$MT" "$REPO_URL" "$RS"
+}
+
+# ============================================================================
+#  ENVIRONMENT
+# ============================================================================
+find_python() {
+  for c in python3.12 python3.11 python3.10 python3.13; do
+    if command -v "$c" >/dev/null 2>&1 \
+       && "$c" -c 'import sys; sys.exit(0 if (3,10)<=sys.version_info[:2]<=(3,13) else 1)' 2>/dev/null; then
+      echo "$c"; return 0
     fi
+  done
+  if command -v uv >/dev/null 2>&1; then
+    local p; p="$(uv python find 3.12 2>/dev/null || true)"
+    if [[ -n "$p" && -x "$p" ]]; then echo "$p"; return 0; fi
+  fi
+  return 1
 }
-need python3 python3
-need curl    curl
-need openssl openssl
-need ss      iproute2
-if ! command -v pipx >/dev/null 2>&1 && [ -n "$PKG" ]; then
-    echo "[!] installing pipx via $PKG_NAME …"
-    $PKG pipx >/dev/null 2>&1 || true
-fi
 
-REPO_RAW="https://raw.githubusercontent.com/pdnczone/3x-ui-pro-configs/main"
-USER_REPO="https://github.com/AyhanMansur/AyhanX-Direct"
-TMPPY=$(mktemp /tmp/xui-pro.XXXXXX.py)
-trap 'rm -f "$TMPPY"' EXIT
-cat > "$TMPPY" <<'PYEOF'
-import argparse, base64, glob, ipaddress, json, os, re, secrets, shutil
-import socket, string, subprocess, sys, time, platform, urllib.parse, random
-import concurrent.futures as cfut
-from ipaddress import ip_network
-REPO_RAW = os.environ.get("REPO_RAW", "")
+pick_pypi_mirror() {
+  local mirrors=(
+    "https://pypi.org/simple"
+    "https://mirror-pypi.runflare.com/simple"
+    "https://mirrors.aliyun.com/pypi/simple"
+    "https://pypi.tuna.tsinghua.edu.cn/simple"
+  )
+  for m in "${mirrors[@]}"; do
+    if timeout 6 curl -sSI -o /dev/null "$m/" 2>/dev/null; then echo "$m"; return 0; fi
+  done
+  return 1
+}
 
-G, Y, R, C, B, D, N = ("\033[32m","\033[33m","\033[31m","\033[36m",
-                        "\033[1m","\033[2m","\033[0m")
-OKGREEN, WARNING, FAIL, ENDC = G, Y, R, N
-LITBU, YELLOW, CYAN, PURPLE, BOLD = "\033[94m","\033[93m","\033[96m","\033[95m",B
-colors = [OKGREEN, LITBU, CYAN, PURPLE]
-RAND_COLOR = random.choice(colors)
+ensure_env() {
+  section "Environment"
+  mkdir -p "$APP_DIR" "$RUNNER_DIR" "$CHATS_DIR"
 
-def info(*a): print(G + "[+]" + N, *a, flush=True)
-def warn(*a): print(Y + "[!]" + N, *a, flush=True)
-def die(*a): print(R + "[x]" + N, *a, flush=True); sys.exit(1)
-def head(t): print(f"\n{B}{C}── {t} {'─' * max(2, 60 - len(t))}{N}")
-def sh(cmd, t=60):
-    try:
-        return subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=t).stdout.strip()
-    except Exception:
-        return ""
+  local PY
+  if ! PY="$(find_python)"; then
+    warn "no Python 3.10–3.13 found — installing uv"
+    spin "installing uv" bash -c 'curl -LsSf https://astral.sh/uv/install.sh | sh' || true
+    export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+    if command -v uv >/dev/null 2>&1; then
+      spin "fetching Python 3.12" uv python install 3.12 || true
+      PY="$(uv python find 3.12 2>/dev/null || true)"
+    fi
+    [[ -z "${PY:-}" ]] && { err "cannot obtain Python 3.10–3.13"; exit 1; }
+  fi
+  ok "python → $PY"
 
-def clear_screen():
-    if not sys.stdout.isatty(): return
-    if shutil.which("clear"): subprocess.run(["clear"], check=False)
-    else: print("\033[2J\033[H", end="", flush=True)
+  local rebuild=0
+  [[ -d "$VENV" ]] || rebuild=1
+  [[ -x "$VENV/bin/python" ]] || rebuild=1
+  if (( !rebuild )); then
+    "$VENV/bin/python" -c 'import httpx,rich,prompt_toolkit,fastapi,uvicorn' 2>/dev/null || rebuild=1
+  fi
 
-BANNER = r"""
-  ▄▄▄     ▓██   ██▓ ██░ ██  ▄▄▄       ███▄    █ ▒██   ██▒▓█████▄  ██▓ ██▀███  ▓█████  ▄████▄  ▄▄▄█████▓
-▒████▄    ▒██  ██▒▓██░ ██▒▒████▄     ██ ▀█   █ ▒▒ █ █ ▒░▒██▀ ██▌▓██▒▓██ ▒ ██▒▓█   ▀ ▒██▀ ▀█  ▓  ██▒ ▓▒
-▒██  ▀█▄   ▒██ ██░▒██▀▀██░▒██  ▀█▄  ▓██  ▀█ ██▒░░  █   ░░██   █▌▒██▒▓██ ░▄█ ▒▒███   ▒▓█    ▄ ▒ ▓██░ ▒░
-░██▄▄▄▄██  ░ ▐██▓░░▓█ ░██ ░██▄▄▄▄██ ▓██▒  ▐▌██▒ ░ █ █ ▒ ░▓█▄   ▌░██░▒██▀▀█▄  ▒▓█  ▄ ▒▓▓▄ ▄██▒░ ▓██▓ ░ 
- ▓█   ▓██▒ ░ ██▒▓░░▓█▒░██▓ ▓█   ▓██▒▒██░   ▓██░▒██▒ ▒██▒░▒████▓ ░██░░██▓ ▒██▒░▒████▒▒ ▓███▀ ░  ▒██▒ ░ 
- ▒▒   ▓▒█░  ██▒▒▒  ▒ ░░▒░▒ ▒▒   ▓▒█░░ ▒░   ▒ ▒ ▒▒ ░ ░▓ ░ ▒▒▓  ▒ ░▓  ░ ▒▓ ░▒▓░░░ ▒░ ░░ ░▒ ▒  ░  ▒ ░░   
-  ▒   ▒▒ ░▓██ ░▒░  ▒ ░▒░ ░  ▒   ▒▒ ░░ ░░   ░ ▒░░░   ░▒ ░ ░ ▒  ▒  ▒ ░  ░▒ ░ ▒░ ░ ░  ░  ░  ▒       ░    
-  ░   ▒   ▒ ▒ ░░   ░  ░░ ░  ░   ▒      ░   ░ ░  ░    ░   ░ ░  ░  ▒ ░  ░░   ░    ░   ░          ░      
-      ░  ░░ ░      ░  ░  ░      ░  ░         ░  ░    ░     ░     ░     ░        ░  ░░ ░               
-          ░ ░                                            ░                          ░
-"""
-USER_REPO  = "https://github.com/AyhanMansur/AyhanX-Direct"
-BRAND      = "🧩👾AyhanX-Direct • "
-PRO_TITLE  = f"{B}{C}3x-ui Pro Configs  ·  CDN + PQ + REALITY installer{N}"
-SCAN_TITLE = f"{B}{C}Proxy Scanner  ·  range / domain → link builder{N}"
+  if (( rebuild )); then
+    local mirror host
+    if ! mirror="$(pick_pypi_mirror)"; then
+      err "no PyPI mirror reachable — check DNS or internet"
+      info "try: echo 'nameserver 1.1.1.1' > /etc/resolv.conf"; exit 1
+    fi
+    host="$(echo "$mirror" | awk -F/ '{print $3}')"
+    ok "package index → $host"
+    rm -rf "$VENV"
+    spin "creating virtual environment" "$PY" -m venv "$VENV" || { err "venv failed"; exit 1; }
+    spin "upgrading pip" "$VENV/bin/pip" install -q --upgrade pip --timeout 10 --retries 1 || true
+    spin "installing packages" \
+      "$VENV/bin/pip" install --index-url "$mirror" --trusted-host "$host" \
+      --timeout 20 --retries 3 httpx rich prompt_toolkit fastapi uvicorn || { err "install failed"; exit 1; }
+  else
+    ok "runtime ready"
+  fi
+}
 
-p = argparse.ArgumentParser()
-for a in ("--domain","--cdn","--configs","--email","--token","--api-key","--clean","--ports","--scan-limit",
-          "--panel","--panel-url","--panel-user","--panel-pass"):
-    p.add_argument(a)
-for a in ("--no-bbr","--no-test","--yes","--dry-run","--scan","--install","--no-scan",
-          "--no-reality-scan","--fresh-reality-scan"):
-    p.add_argument(a, action="store_true")
-A = p.parse_args()
-TOKEN_IN = A.token or A.api_key or ""
+ensure_key() {
+  section "Credentials"
+  [[ -f "$ENV_FILE" ]] && { set -o allexport; . "$ENV_FILE"; set +o allexport; }
 
-try:    TTY = open("/dev/tty")
-except Exception: TTY = None
-_null = os.open(os.devnull, os.O_RDONLY)
-os.dup2(_null, 0)
-INTERACTIVE = not A.yes and TTY is not None
-def ask(q, default=""):
-    if not INTERACTIVE: return default
-    print(f"{B}?{N} {q}" + (f" {D}[{default}]{N}" if default != "" else "") + ": ", end="", flush=True)
-    return TTY.readline().strip() or default
-def yes(q, default=True):
-    return ask(q + (" (Y/n)" if default else " (y/N)"), "y" if default else "n").lower().startswith("y")
+  local provider=""
+  if [[ -n "${AYHANX_PROVIDER:-}" && "${AYHANX_PROVIDER}" != "auto" ]]; then
+    provider="$AYHANX_PROVIDER"
+  elif [[ -n "${DEEPSEEK_BASE_URL:-}" ]]; then
+    case "$DEEPSEEK_BASE_URL" in
+      *openrouter*) provider="openrouter" ;;
+      *groq*)       provider="groq" ;;
+      *generativelanguage*) provider="google" ;;
+      *:11434*)     provider="ollama" ;;
+      *:1234*)      provider="lmstudio" ;;
+      *:8000*)      provider="vllm" ;;
+      *:8080*)      provider="llamacpp" ;;
+      *deepseek*)   provider="deepseek" ;;
+    esac
+  fi
 
-# ───────── scanner ─────────
-def _pipx_has(mod):
-    try: return subprocess.run(["pipx","runpip",mod,"show",mod],
-                                capture_output=True, text=True, timeout=30).returncode == 0
-    except Exception: return False
-def _pipx_install(mod):
-    try: return subprocess.run(["pipx","install",mod],
-                                capture_output=True, text=True, timeout=300).returncode == 0
-    except Exception: return False
-def ensure_requests():
-    try:
-        import requests  # noqa: F401
-        return True
-    except ImportError:
-        pass
-    def try_import_after():
-        import importlib
-        for q in list(sys.path):
-            if os.path.isdir(q): importlib.invalidate_caches()
-        try:
-            import requests  # noqa: F401
-            return True
-        except ImportError: return False
-    def add_pipx_venv_to_path(mod="requests"):
-        home = os.path.expanduser("~")
-        cands  = glob.glob(f"{home}/.local/pipx/venvs/{mod}/lib/python*/site-packages")
-        cands += glob.glob(f"/root/.local/pipx/venvs/{mod}/lib/python*/site-packages")
-        cands += glob.glob(f"/usr/local/pipx/venvs/{mod}/lib/python*/site-packages")
-        if not cands and shutil.which("pipx"):
-            try:
-                out = subprocess.run(["pipx","environment","--value","PIPX_LOCAL_VENVS"],
-                                     capture_output=True, text=True, timeout=30).stdout.strip()
-                if out: cands = glob.glob(f"{out}/{mod}/lib/python*/site-packages")
-            except Exception: pass
-        if cands:
-            sys.path.insert(0, sorted(cands)[-1]); return True
-        return False
-    pipx = shutil.which("pipx")
-    if pipx:
-        if not _pipx_has("requests") and not _pipx_install("requests"): pass
-        if add_pipx_venv_to_path("requests") and try_import_after(): return True
-    for cmd in (["pip","install","--user","requests"],
-                [sys.executable,"-m","pip","install","--user","requests"]):
-        try:
-            if subprocess.run(cmd, capture_output=True, text=True, timeout=180).returncode == 0:
-                for q in glob.glob(os.path.expanduser("~/.local/lib/python*/site-packages")):
-                    if q not in sys.path: sys.path.append(q)
-                if try_import_after(): return True
-        except Exception: pass
-    for extra in ([], ["--break-system-packages"]):
-        try:
-            cmd = [sys.executable,"-m","pip","install"] + extra + ["requests"]
-            if subprocess.run(cmd, capture_output=True, text=True, timeout=180).returncode == 0 \
-               and try_import_after(): return True
-        except Exception: pass
-    print(f"{R}  ✘{N} could not auto-install {CYAN}requests{N} — falling back to curl")
-    return False
+  if [[ -z "$provider" || "${AYHANX_PROVIDER:-}" == "auto" ]]; then
+    local detected=""
+    if detected="$(detect_local)"; then
+      provider="$detected"
+      ok "detected local server → $(provider_label "$provider")"
+    fi
+  fi
 
-def scan_host(host):
-    param = '-n' if sys.platform.startswith('win') else '-c'
-    try: return subprocess.run(['ping',param,'1',host], capture_output=True, text=True, timeout=2).returncode == 0
-    except Exception: return False
-def scan_network(network_str, limit=None):
-    try:
-        n = ip_network(network_str, strict=False)
-        addrs = list(n.hosts())
-        if limit is not None: addrs = addrs[:limit]
-        print(f"{random.choice(colors)}🔍 Scanning {'IPv6' if n.version==6 else 'IPv4'} {network_str} ({len(addrs)})...{ENDC}")
-        a = []
-        for ip in addrs:
-            if scan_host(str(ip)): a.append(str(ip)); print(f"{OKGREEN}   ✅ {ip}{ENDC}")
-        return a, len(addrs)
-    except Exception as e:
-        print(f"{FAIL}❌ {network_str}: {e}{ENDC}"); return [], 0
-def scan_domains(dl, limit=None):
-    if limit is not None: dl = dl[:limit]
-    print(f"{random.choice(colors)}🔍 Scanning {len(dl)} domains...{ENDC}")
-    a = []
-    for d in dl:
-        if scan_host(d): a.append(d); print(f"{OKGREEN}   ✅ {d}{ENDC}")
-    return a, len(dl)
-def check_clean_ip(host, cdn_host, cdn_port, timeout=6, max_ms=1500):
-    ip = host
-    if not re.match(r"^[\d.]+$", host):
-        try:
-            for _, _, _, _, sa in socket.getaddrinfo(host, None, socket.AF_INET):
-                ip = sa[0]; break
-        except Exception: return None
-    if not re.match(r"^[\d.]+$", ip): return None
-    r = sh(f"curl -s -o /dev/null -m{timeout} -w '%{{http_code}} %{{time_connect}}' "
-           f"--resolve {cdn_host}:{cdn_port}:{ip} https://{cdn_host}:{cdn_port}/", timeout + 4)
-    code, _, t = r.partition(" ")
-    if not code or code == "000": return None
-    try: ms = int(float(t or 0) * 1000)
-    except Exception: ms = 9999
-    if code in ("200","204","301","302","403") and ms <= max_ms:
-        return ip, ms
-    return None
-def write_clean_ips(items, filename="clean-ips.txt"):
-    try:
-        with open(filename, "w", encoding="utf-8") as f:
-            f.write("# Cloudflare clean IPs\n")
-            for ip, ms in items: f.write(f"{ip}  # {ms}ms\n")
-        print(f"{OKGREEN}✅ wrote {len(items)} clean IPs → {os.path.abspath(filename)}{ENDC}")
-    except Exception as e:
-        print(f"{WARNING}⚠️ {filename}: {e}{ENDC}")
+  if [[ -z "$provider" ]]; then provider="$(provider_of_key "${DEEPSEEK_API_KEY:-}")"; fi
+  if [[ -z "$provider" && -f "$PROVIDER_FILE" ]]; then
+    provider="$(cat "$PROVIDER_FILE" 2>/dev/null || echo "")"
+  fi
+  if [[ -z "$provider" ]]; then provider="deepseek"; fi
 
-def parse_proxy_link(link):
-    link = link.strip()
-    if link.startswith('vless://'): return parse_vless(link)
-    if link.startswith('trojan://'): return parse_trojan(link)
-    raise ValueError("Only vless and trojan templates are supported.")
-def parse_vless(link):
-    rest = link[8:]; ui, rest = rest.split('@',1)
-    pr = urllib.parse.urlparse('//'+rest); nl, q, fr = pr.netloc, pr.query, pr.fragment
-    h, _, ps = nl.partition(':'); pt = int(ps) if ps.isdigit() else 443
-    P = urllib.parse.parse_qs(q, keep_blank_values=True)
-    for k,v in P.items(): P[k] = v[-1] if v else ''
-    return {'scheme':'vless','userinfo':ui,'host':h,'port':pt,'params':P,'fragment':fr,'raw':None}
-def parse_trojan(link):
-    rest = link[9:]; ui, rest = rest.split('@',1)
-    pr = urllib.parse.urlparse('//'+rest); nl, q, fr = pr.netloc, pr.query, pr.fragment
-    h, _, ps = nl.partition(':'); pt = int(ps) if ps.isdigit() else 443
-    P = urllib.parse.parse_qs(q, keep_blank_values=True)
-    for k,v in P.items(): P[k] = v[-1] if v else ''
-    return {'scheme':'trojan','userinfo':ui,'host':h,'port':pt,'params':P,'fragment':fr,'raw':None}
+  if is_local_provider "$provider"; then
+    DEEPSEEK_API_KEY="${DEEPSEEK_API_KEY:-local}"
+    ok "local provider — no API key required"
+  else
+    if [[ -z "${DEEPSEEK_API_KEY:-}" ]]; then
+      warn "no API key found for $(provider_label "$provider")"
+      printf '  %s›%s paste your key: ' "$PK" "$RS"
+      read -r -s DEEPSEEK_API_KEY || true
+      echo
+      [[ -z "${DEEPSEEK_API_KEY:-}" ]] && { err "required"; exit 1; }
+      printf 'DEEPSEEK_API_KEY=%s\n' "$DEEPSEEK_API_KEY" > "$ENV_FILE"
+      chmod 600 "$ENV_FILE"
+      ok "key saved"
+    else
+      ok "key loaded"
+    fi
+  fi
 
-def _qs(P): return '&'.join(f"{k}={urllib.parse.quote_plus(v)}" for k,v in P.items() if v)
-def build_vless(c,h):
-    q = _qs(c['params']); u = f"vless://{c['userinfo']}@{h}:{c['port']}"
-    if q: u += f"?{q}"
-    if c['fragment']: u += f"#{c['fragment']}"
-    return u
-def build_trojan(c,h):
-    q = _qs(c['params']); u = f"trojan://{c['userinfo']}@{h}:{c['port']}"
-    if q: u += f"?{q}"
-    if c['fragment']: u += f"#{c['fragment']}"
-    return u
-def build_proxy_link(c,h):
-    return {'vless':build_vless,'trojan':build_trojan}[c['scheme']](c,h)
+  printf '%s\n' "$provider" > "$PROVIDER_FILE"
+  export AYHANX_PROVIDER="$provider"
+  export DEEPSEEK_API_KEY
+  export DEEPSEEK_BASE_URL="${DEEPSEEK_BASE_URL:-$(provider_url "$provider")}"
+  export DEEPSEEK_MODEL="${DEEPSEEK_MODEL:-$(provider_default_model "$provider")}"
 
-def get_cached_list(url, cache_file):
-    use_requests = ensure_requests()
-    if os.path.exists(cache_file) and os.path.getsize(cache_file) > 0:
-        try:
-            content = open(cache_file, 'r', encoding='utf-8').read()
-            items = [l.strip() for l in content.splitlines() if l.strip() and not l.startswith('#')]
-            if items:
-                print(f"{OKGREEN}✅ Loaded {len(items)} items from cache.{ENDC}")
-                return items
-        except Exception: pass
-    print(f"{LITBU}📡 Downloading list...{ENDC}")
-    content = ""
-    if use_requests:
-        import requests
-        try:
-            r = requests.get(url, timeout=15); r.raise_for_status(); content = r.text
-        except Exception as e:
-            print(f"{WARNING}⚠️ {e} — trying curl{ENDC}")
-    if not content: content = sh(f"curl -fsSL -m 20 {url}")
-    if not content: die("download failed")
-    open(cache_file, 'w', encoding='utf-8').write(content)
-    items = [l.strip() for l in content.splitlines() if l.strip() and not l.startswith('#')]
-    if not items: die("no items in downloaded file")
-    print(f"{OKGREEN}✅ Cached {len(items)} items.{ENDC}")
-    return items
+  if [[ ! -f "$PROVIDERS_FILE" ]]; then
+    "$VENV/bin/python" - "$PROVIDERS_FILE" "$provider" \
+      "$DEEPSEEK_API_KEY" "$DEEPSEEK_BASE_URL" "$DEEPSEEK_MODEL" <<'PYSEED'
+import json, sys, os
+path, name, key, url, model = sys.argv[1:6]
+json.dump({name: {"key": key, "url": url, "model": model}}, open(path, "w"), indent=2)
+os.chmod(path, 0o600)
+PYSEED
+  fi
 
-def copy_to_clipboard(text):
-    try:
-        if platform.system() == "Windows":
-            import win32clipboard
-            win32clipboard.OpenClipboard(); win32clipboard.EmptyClipboard()
-            win32clipboard.SetClipboardText(text); win32clipboard.CloseClipboard()
-        elif platform.system() == "Linux":
-            subprocess.run(['xclip','-selection','clipboard'], input=text, text=True, check=False)
-        elif platform.system() == "Darwin":
-            subprocess.run(['pbcopy'], input=text, text=True, check=False)
-        print(f"{OKGREEN}✅ Copied to clipboard.{ENDC}")
-    except Exception as e:
-        print(f"{WARNING}⚠️ Clipboard: {e}{ENDC}")
+  ok "provider → $(provider_label "$provider")"
+  info "endpoint → $DEEPSEEK_BASE_URL"
+  info "model    → $DEEPSEEK_MODEL"
+}
 
-def run_scanner(default_template=None):
-    print(f"{B}{C}{BANNER}{N}")
-    print(f"{D}        {SCAN_TITLE}{N}")
-    print(f"{D}        {USER_REPO}{N}\n")
-    if ask(f"{CYAN}❓ Start scan? [Y/n]{ENDC}", "y").lower() == 'n':
-        print(f"{YELLOW}🚫 Cancelled.{ENDC}"); return
-    if default_template:
-        template = ask(f"{YELLOW}➜ template (Enter = from install){ENDC}", default_template).strip()
-    else:
-        template = ask(f"{YELLOW}➜ vless/trojan template (Enter = skip){ENDC}", "").strip()
-    pc = None
-    if template:
-        try: pc = parse_proxy_link(template); print(f"{OKGREEN}✅ {pc['scheme']}{ENDC}")
-        except Exception as e: print(f"{WARNING}⚠️ {e}{ENDC}")
-    ch = ask(f"{CYAN}❓ 1=IPv4, 2=IPv6, 3=domains{ENDC}", "1").strip()
-    while ch not in ('1','2','3'): ch = ask(f"{CYAN}❓ 1=IPv4, 2=IPv6, 3=domains{ENDC}", "1").strip()
-    RD = ("https://raw.githubusercontent.com/AyhanMansur/AyhanX-Fredom-Scanner/refs/heads/main/"
-          "%F0%9D%94%B8%F0%9D%95%AA%F0%9D%95%99%F0%9D%95%92%F0%9D%95%9F%F0%9D%95%8F-%F0%9D%94%BD"
-          "%F0%9D%95%A3%F0%9D%95%96%F0%9D%95%95%F0%9D%95%A0%F0%9D%95%9E-%F0%9D%95%8A%F0%9D%95%94"
-          "%F0%9D%95%92%F0%9D%95%9F%F0%9D%95%9F%F0%9D%95%96%F0%9D%95%A3-%F0%9F%A7%91%E2%80%8D"
-          "%F0%9F%92%BB%F0%9F%8C%BF")
-    if ch == '3':
-        url, cache = "https://raw.githubusercontent.com/AyhanMansur/AyhanX-Fredom-Scanner/refs/heads/main/domains.txt", "domains_cache.txt"
-    elif ch == '2':
-        url, cache = RD+"/IPV6.Range.txt", "ranges_v6_cache.txt"
-    else:
-        url, cache = RD+"/IPV4.Range.txt", "ranges_v4_cache.txt"
-    items = get_cached_list(url, cache)
-    li = str(A.scan_limit) if A.scan_limit is not None else ask(f"{CYAN}🔢 Limit (Enter = all){ENDC}", "")
-    lim = None
-    if li:
-        try:
-            lim = int(li)
-            if lim <= 0: raise ValueError
-        except ValueError: lim = None
-    print(f"{LITBU}🚀 Scanning...{ENDC}\n")
-    all_a, tot = [], 0
-    if ch == '3': all_a, tot = scan_domains(items, lim)
-    else:
-        rem = lim
-        for r in items:
-            if rem is not None and rem <= 0: break
-            a, s = scan_network(r, rem); all_a.extend(a); tot += s
-            if rem is not None: rem -= s
-    print(f"\n{BOLD}{OKGREEN}📊 Summary:{ENDC}")
-    print(f"   scanned {tot}, active {len(all_a)}")
-    for it in all_a: print(f"   {OKGREEN}► {it}{ENDC}")
-    cdn_host = A.cdn or A.domain or ""
-    if all_a and cdn_host:
-        print(f"\n{LITBU}🧪 verifying against {cdn_host} …{ENDC}")
-        clean = []
-        with cfut.ThreadPoolExecutor(16) as ex:
-            futs = {ex.submit(check_clean_ip, h, cdn_host, 443): h for h in all_a}
-            for fut in cfut.as_completed(futs):
-                r = fut.result()
-                if r: clean.append(r); print(f"{OKGREEN}   ✔ {r[0]} ({r[1]}ms){ENDC}")
-        clean.sort(key=lambda t: t[1])
-        if clean: write_clean_ips(clean, "clean-ips.txt")
-    gen = []
-    if pc and all_a:
-        for h in all_a:
-            nl = build_proxy_link(pc, h); gen.append(nl); print(f"{OKGREEN}   ➜ {nl}{ENDC}")
-    if ask(f"{CYAN}📋 Copy? [y/N]{ENDC}", "n").lower() in ('y','yes'):
-        copy_to_clipboard("\n".join(gen) if gen else "\n".join(all_a))
+# ============================================================================
+#  WRITE: runner/tools.py  (FULL POWER — agent can code & run shell)
+# ============================================================================
+write_tools() {
+  mkdir -p "$RUNNER_DIR"
+  cat > "$RUNNER_DIR/tools.py" <<'PYEOF'
+"""AyhanX-Agent — full-power tools (filesystem + shell + python)."""
+import json
+import os
+import subprocess
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
 
-# ═══════════════════════════════════════════════════════════════════════════
-#  PANEL ADAPTERS
-# ═══════════════════════════════════════════════════════════════════════════
-COMING_SOON = "🔮 coming soon"
+TOOL_SPECS = [
+    {"type": "function", "function": {
+        "name": "get_current_time",
+        "description": "Get the current UTC date and time in ISO 8601 format.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "calculate",
+        "description": "Evaluate a simple arithmetic expression.",
+        "parameters": {"type": "object", "properties": {
+            "expression": {"type": "string", "description": "e.g. '2 + 3 * 4'"}},
+            "required": ["expression"]},
+    }},
+    {"type": "function", "function": {
+        "name": "list_directory",
+        "description": "List files in a directory under the user's home.",
+        "parameters": {"type": "object", "properties": {
+            "path": {"type": "string", "description": "relative path (default: home)"}}},
+    }},
+    {"type": "function", "function": {
+        "name": "read_file",
+        "description": "Read the full content of a text file under the user's home.",
+        "parameters": {"type": "object", "properties": {
+            "path": {"type": "string"}}, "required": ["path"]},
+    }},
+    {"type": "function", "function": {
+        "name": "write_file",
+        "description": (
+            "Create or overwrite a text file with the given content. "
+            "Creates parent directories automatically. "
+            "Use this to actually write code, not just show it."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "path": {"type": "string", "description": "relative path e.g. 'projects/app.py'"},
+            "content": {"type": "string", "description": "full file content"}},
+            "required": ["path", "content"]},
+    }},
+    {"type": "function", "function": {
+        "name": "edit_file",
+        "description": (
+            "Replace an exact string in a file. Use for small edits. "
+            "old_string must be unique in the file."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "path": {"type": "string"},
+            "old_string": {"type": "string", "description": "exact text to replace"},
+            "new_string": {"type": "string", "description": "replacement text"}},
+            "required": ["path", "old_string", "new_string"]},
+    }},
+    {"type": "function", "function": {
+        "name": "make_dir",
+        "description": "Create a directory (and parents) under the user's home.",
+        "parameters": {"type": "object", "properties": {
+            "path": {"type": "string"}}, "required": ["path"]},
+    }},
+    {"type": "function", "function": {
+        "name": "delete_file",
+        "description": "Delete a file (not a directory) under the user's home.",
+        "parameters": {"type": "object", "properties": {
+            "path": {"type": "string"}}, "required": ["path"]},
+    }},
+    {"type": "function", "function": {
+        "name": "run_shell",
+        "description": (
+            "Run a shell command in the user's home directory. "
+            "Use for: running scripts, installing packages, git, tests, etc. "
+            "Returns stdout + stderr + exit code. "
+            "NEVER use destructive commands (rm -rf /, mkfs, dd if=/dev/zero)."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "command": {"type": "string", "description": "shell command"},
+            "timeout": {"type": "integer", "description": "seconds (default 30)"}},
+            "required": ["command"]},
+    }},
+    {"type": "function", "function": {
+        "name": "run_python",
+        "description": (
+            "Write Python code to a temp file, run with python3, "
+            "return the output. Use for quick experiments without saving."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "code": {"type": "string", "description": "python source code"}},
+            "required": ["code"]},
+    }},
+]
 
-class PanelBase:
-    name = "abstract"
-    def __init__(self, base, token, resolve):
-        self.base = base.rstrip("/"); self.token = token or ""; self.resolve = resolve
-    def _http(self, path, body=None, method=None, timeout=20, form=None):
-        c = ["curl","-sk","-m",str(timeout)] + self.resolve
-        if self.token: c += ["-H", f"Authorization: Bearer {self.token}"]
-        if form is not None:
-            c += ["-X", (method or "POST"), "--data", urllib.parse.urlencode(form)]
-        elif body is not None:
-            c += ["-H","Content-Type: application/json","-X",(method or "POST"),"-d",json.dumps(body)]
-        elif method:
-            c += ["-X", method]
-        out = subprocess.run(c + [self.base + path], capture_output=True, text=True).stdout
-        try: return json.loads(out)
-        except Exception: return {"success": False, "raw": out[:300]}
-    def _code(self, path, method=None, timeout=4):
-        c = ["curl","-sk","-m",str(timeout),"-o","/dev/null","-w","%{http_code}"] + self.resolve
-        if self.token: c += ["-H", f"Authorization: Bearer {self.token}"]
-        if method: c += ["-X", method]
-        try:
-            return subprocess.run(c + [self.base + path], capture_output=True,
-                                  text=True, timeout=timeout + 5).stdout.strip()
-        except Exception:
-            return ""
-    def probe(self):           raise NotImplementedError
-    def list_inbounds(self):   raise NotImplementedError
-    def add_inbound(self, remark, port, protocol, settings, stream, sniffing): raise NotImplementedError
-    def del_inbound(self, iid): raise NotImplementedError
-    def add_client(self, email, subid, password, inbound_ids): raise NotImplementedError
-    def attach_client(self, email, inbound_ids): raise NotImplementedError
-    def detach_client(self, email, inbound_ids): raise NotImplementedError
-    def add_host(self, inbound_id, remark, address, extra, sort_order=0): raise NotImplementedError
-    def restart(self):         raise NotImplementedError
-    def xray_version(self):    raise NotImplementedError
-    def ports_owned(self):     return set(), set()
-    def sub_urls(self, subid): return (None, None)
-    def db_backup(self):       return None
-    def set_remark_template(self, tpl): return True
-    def clients_list(self):    return []
-    def supports(self, key):   return True
 
-class Panel3xui(PanelBase):
-    name = "3x-ui"
-    def probe(self):
-        if self.base in _XUI_DB_URLS:          # address came from x-ui.db
-            return self._code("/") not in ("", "000")
-        r = self._http("/panel/api/inbounds/list")
-        if r.get("success") is True: return True
-        blob = json.dumps(r).lower()
-        if any(tok in blob for tok in ('"success":false', 'inbound', 'not authenticated',
-                                       'unauthorized', 'authorization', 'login')):
-            return True
-        s = json.dumps(self._http("/panel/api/server/status")).lower()
-        return "panelversion" in s or "xray" in s
-    def _status(self): return self._http("/panel/api/server/status").get("obj") or {}
-    def list_inbounds(self): return self._http("/panel/api/inbounds/list").get("obj") or []
-    def add_inbound(self, remark, port, protocol, settings, stream, sniffing):
-        r = self._http("/panel/api/inbounds/add",
-                       {"up":0,"down":0,"total":0,"remark":remark,"enable":True,"expiryTime":0,
-                        "listen":"","port":port,"protocol":protocol,"settings":settings,
-                        "streamSettings":stream,"sniffing":sniffing})
-        return (r.get("obj") or {}).get("id") if r.get("success") else None
-    def del_inbound(self, iid):
-        return self._http(f"/panel/api/inbounds/del/{iid}", method="POST").get("success", False)
-    def add_client(self, email, subid, password, inbound_ids):
-        cl = {"email":email,"subId":subid,"flow":"xtls-rprx-vision","password":password,
-              "totalGB":0,"expiryTime":0,"limitIp":0,"limitHwid":0,"enable":True,"tgId":0,
-              "comment":"3x-ui-pro-configs"}
-        return bool(self._http("/panel/api/clients/add", {"client":cl,"inboundIds":inbound_ids}).get("success"))
-    def attach_client(self, email, inbound_ids):
-        return self._http(f"/panel/api/clients/{email}/attach", {"inboundIds":inbound_ids}).get("success", False)
-    def detach_client(self, email, inbound_ids):
-        return self._http(f"/panel/api/clients/{email}/detach", {"inboundIds":inbound_ids}).get("success", False)
-    def add_host(self, inbound_id, remark, address, extra, sort_order=0):
-        body = {"inboundIds":[inbound_id],"remark":remark,"hosts":[address],"port":0,
-                "security":"same","sortOrder":sort_order}
-        body.update(extra or {})
-        return self._http("/panel/api/hosts/add", body).get("success", False)
-    def restart(self): self._http("/panel/api/server/restartXrayService", method="POST")
-    def xray_version(self):
-        return ((self._status().get("xray") or {}).get("version") or "?")
-    def clients_list(self): return self._http("/panel/api/clients/list").get("obj") or []
-    def ports_owned(self):
-        tcp, udp = set(), set()
-        for ib in self.list_inbounds():
-            st = ib.get("streamSettings")
-            st = json.loads(st) if isinstance(st,str) and st else (st or {})
-            if ib.get("protocol") in ("hysteria","wireguard","amneziawg") or st.get("network") in ("kcp","hysteria"):
-                udp.add(ib.get("port"))
-            else:
-                tcp.add(ib.get("port"))
-        s = self._http("/panel/api/setting/all", method="POST").get("obj") or {}
-        for k in ("subPort","webPort"):
-            if s.get(k): tcp.add(int(s[k]))
-        return tcp, udp
-    def sub_urls(self, subid):
-        s = self._http("/panel/api/setting/all", method="POST").get("obj") or {}
-        sp = s.get("subPort", 2096)
-        scheme = "https" if s.get("subCertFile") else "http"
-        host = s.get("subDomain") or (sh("curl -4 -s -m6 https://api.ipify.org") or "")
-        return (f"{scheme}://{host}:{sp}{s.get('subPath','/sub/')}{subid}",
-                f"{scheme}://{host}:{sp}{s.get('subJsonPath','/json/')}{subid}")
-    def set_remark_template(self, tpl):
-        s = self._http("/panel/api/setting/all", method="POST").get("obj") or {}
-        s["remarkTemplate"] = tpl
-        if not s.get("subJsonEnable"): s["subJsonEnable"] = True
-        return self._http("/panel/api/setting/update", s, method="POST").get("success", False)
-    def db_backup(self):
-        db = "/etc/x-ui/x-ui.db"
-        if os.path.exists(db):
-            dst = f"{db}.bak-pro-{int(time.time())}"
-            shutil.copy(db, dst); return dst
-        return None
+def _safe_resolve(p):
+    base = Path.home()
+    if not p:
+        return base
+    t = (base / p).expanduser().resolve()
+    if t != base and base not in t.parents:
+        raise ValueError(f"path escapes home directory: {p}")
+    return t
 
-class PanelMarzban(PanelBase):
-    """Marzban: OAuth2 form login (JWT). Inbounds are plain Xray inbounds in the
-    core config (GET/PUT /api/core/config). Users reference inbound tags per
-    protocol. Hosts are one dict keyed by inbound tag (GET/PUT /api/hosts)."""
-    name = "Marzban"
-    def __init__(self, base, token, resolve):
-        super().__init__(base, token, resolve)
-        self.jwt = None; self._tag_proto = {}; self._sub = None
 
-    # ---- helpers
-    @staticmethod
-    def _failed(r):
-        return not isinstance(r, dict) or "detail" in r or r.get("success") is False
+def _err(m): return json.dumps({"error": m})
+def _ok(m, **extra): return json.dumps({"ok": True, "message": m, **extra})
 
-    # ---- auth / detection
-    def login(self, user, pw):
-        r = self._http("/api/admin/token",
-                       form={"username": user, "password": pw, "grant_type": "password"})
-        tok = r.get("access_token") if isinstance(r, dict) else None
-        if tok:
-            self.jwt = self.token = tok; return True
-        return False
-    def authed(self): return self._code("/api/core/config") == "200"
-    def probe(self):
-        if self.token: return self.authed()
-        if self._code("/api/cores") in ("200", "401", "403"):   # Pasarguard only
-            return False
-        return self._code("/api/core/config") in ("401", "403")
 
-    # ---- core config (inbounds)
-    def _config(self):
-        r = self._http("/api/core/config", method="GET")
-        return None if self._failed(r) else r
-    def _save_config(self, cfg):
-        r = self._http("/api/core/config", cfg, method="PUT", timeout=60)
-        if self._failed(r):
-            warn(f"Marzban core update rejected: {json.dumps(r)[:240]}")
-            return False
-        return True
-    @staticmethod
-    def _native(stream):
-        """3x-ui stream JSON -> plain Xray streamSettings (strip panel-only keys)."""
-        s = json.loads(json.dumps(stream))
-        s.pop("externalProxy", None)
-        (s.get("realitySettings") or {}).pop("settings", None)
-        t = s.get("tlsSettings")
-        if t:
-            t.pop("settings", None)
-            if not t.get("cipherSuites"): t.pop("cipherSuites", None)
-        return s
-    def _proto(self, tag):
-        if tag in self._tag_proto: return self._tag_proto[tag]
-        for ib in (self._config() or {}).get("inbounds", []) or []:
-            if ib.get("tag") == tag: return ib.get("protocol")
-        return None
-    def list_inbounds(self):
-        cfg = self._config() or {}
-        return [{"tag": ib.get("tag"), "port": ib.get("port"), "protocol": ib.get("protocol"),
-                 "streamSettings": ib.get("streamSettings") or {}}
-                for ib in cfg.get("inbounds", []) or []]
-    def ports_owned(self):
-        tcp, udp = set(), set()
-        for ib in self.list_inbounds():
-            try: port = int(ib["port"])
-            except Exception: continue
-            net = (ib.get("streamSettings") or {}).get("network")
-            if (ib.get("protocol") or "") in ("hysteria", "hysteria2", "wireguard") or net in ("kcp", "hysteria"):
-                udp.add(port)
-            else: tcp.add(port)
-        return tcp, udp
-    def add_inbound(self, remark, port, protocol, settings, stream, sniffing):
-        cfg = self._config()
-        if cfg is None:
-            warn("Marzban: could not read the core config"); return None
-        ibs = cfg.setdefault("inbounds", [])
-        tag = re.sub(r"[^A-Za-z0-9_-]+", "_", f"pro-{protocol}-{port}")[:48]
-        if any(i.get("tag") == tag for i in ibs): tag += "-" + secrets.token_hex(2)
-        ibs.append({"tag": tag, "port": port, "protocol": protocol, "settings": settings,
-                    "streamSettings": self._native(stream), "sniffing": sniffing})
-        if not self._save_config(cfg): return None
-        self._tag_proto[tag] = protocol
-        return tag
-    def del_inbound(self, tag):
-        cfg = self._config()
-        if not cfg: return False
-        cfg["inbounds"] = [i for i in cfg.get("inbounds", []) if i.get("tag") != tag]
-        self._tag_proto.pop(tag, None)
-        return self._save_config(cfg)
-
-    # ---- users
-    def _user(self, email):
-        u = self._http(f"/api/user/{email}", method="GET")
-        return None if self._failed(u) else u
-    def add_client(self, email, subid, password, inbound_ids):
-        import uuid
-        inb = {}
-        for t in inbound_ids:
-            p = self._proto(t)
-            if p: inb.setdefault(p, []).append(t)
-        if not inb:
-            warn("Marzban: no inbound protocol found for the user"); return False
-        body = {"username": email, "status": "active", "expire": 0, "data_limit": 0,
-                "note": "3x-ui-pro-configs", "inbounds": inb,
-                "proxies": {"trojan": {"password": password},
-                            "vless": {"id": str(uuid.uuid4()), "flow": "xtls-rprx-vision"}}}
-        r = self._http("/api/user", body, method="POST")
-        if self._failed(r) or not r.get("username"):
-            warn(f"Marzban user create: {json.dumps(r)[:200]}"); return False
-        self._sub = r.get("subscription_url"); return True
-    def attach_client(self, email, inbound_ids):
-        u = self._user(email)
-        if u is None: return False
-        inb = {p: list(ts) for p, ts in (u.get("inbounds") or {}).items()}
-        for t in inbound_ids:
-            p = self._proto(t)
-            if p and t not in inb.setdefault(p, []): inb[p].append(t)
-        return not self._failed(self._http(f"/api/user/{email}", {"inbounds": inb}, method="PUT"))
-    def detach_client(self, email, inbound_ids):
-        u = self._user(email)
-        if u is None: return False
-        inb = {p: [t for t in ts if t not in inbound_ids] for p, ts in (u.get("inbounds") or {}).items()}
-        return not self._failed(self._http(f"/api/user/{email}", {"inbounds": inb}, method="PUT"))
-    def clients_list(self):
-        r = self._http("/api/users", method="GET")
-        if isinstance(r, dict) and isinstance(r.get("users"), list): return r["users"]
-        return r if isinstance(r, list) else []
-
-    # ---- hosts (read-modify-write: PUT replaces the whole dict)
-    def add_host(self, inbound_id, remark, address, extra, sort_order=0):
-        extra = extra or {}
-        hosts = self._http("/api/hosts", method="GET")
-        if self._failed(hosts):
-            warn("Marzban: could not read hosts — skipped"); return False
-        sni = extra.get("sni") or ""
-        hosts.setdefault(inbound_id, []).append({
-            "remark": remark, "address": address, "port": int(extra.get("port") or 0),
-            "sni": sni, "host": extra.get("hostHeader") or "", "path": "",
-            "security": "tls" if sni else "inbound_default", "alpn": "",
-            "fingerprint": "chrome" if sni else "", "is_disabled": False})
-        r = self._http("/api/hosts", hosts, method="PUT")
-        if self._failed(r):
-            warn(f"Marzban host {remark}: {json.dumps(r)[:200]}"); return False
-        return True
-
-    # ---- misc
-    def restart(self): self._http("/api/core/restart", method="POST")
-    def xray_version(self):
-        r = self._http("/api/core", method="GET")
-        return (r.get("version") if isinstance(r, dict) else None) or "?"
-    def sub_urls(self, subid):
-        u = self._sub
-        if not u:
-            r = self._http(f"/api/user/{subid}", method="GET")
-            u = r.get("subscription_url") if isinstance(r, dict) else None
-        if u and u.startswith("/"):
-            host = globals().get("DOMAIN") or globals().get("PUB4") or urllib.parse.urlparse(self.base).hostname
-            scheme = "https" if globals().get("CERT") else "http"
-            u = f"{scheme}://{host}{u}"
-        return (u, None)
-    def db_backup(self):
-        cfg = self._config()
-        if cfg is None: return None
-        dst = f"marzban-core.bak-pro-{int(time.time())}.json"
-        with open(dst, "w", encoding="utf-8") as f: json.dump(cfg, f, indent=2)
-        return os.path.abspath(dst)
-    def stage_cert(self, domain, cert, key):
-        base = "/var/lib/marzban"
-        if not os.path.isdir(base): return cert, key
-        d = f"{base}/certs/{domain}"; os.makedirs(d, exist_ok=True)
-        shutil.copy(cert, f"{d}/fullchain.pem"); shutil.copy(key, f"{d}/privkey.pem")
-        os.chmod(f"{d}/privkey.pem", 0o600)
-        info(f"cert copied to {d} (re-copy after renewals)")
-        return f"{d}/fullchain.pem", f"{d}/privkey.pem"
-    def supports(self, key):
-        # Marzban's Xray template rejects FinalMask / PQ Sudoku and REALITY PQ
-        return key not in {"rvpq","rxpq","rgpq","twsp","twstp","trhv","trxp","trgp"}
-
-class PanelPasarguard(PanelBase):
-    """Pasarguard: JWT admin login (no API keys). Inbounds are plain Xray inbounds
-    inside the core config (/api/cores). Users get access through groups.
-    Hosts reference an inbound_tag."""
-    name  = "Pasarguard"
-    GROUP = "pro-configs"
-    def __init__(self, base, token, resolve):
-        super().__init__(base, token, resolve)
-        self.jwt = None; self.core_id = None; self.group_id = None; self._sub = None
-
-    # ---- helpers
-    @staticmethod
-    def _items(r, key):
-        if isinstance(r, list): return r
-        if isinstance(r, dict) and isinstance(r.get(key), list): return r[key]
-        return []
-    @staticmethod
-    def _ok(r, empty_ok=False):
-        if isinstance(r, list): return True
-        if not isinstance(r, dict) or "detail" in r: return False
-        if r.get("success") is False:
-            return bool(empty_ok and r.get("raw", "x") == "")
-        return True
-    def _system(self):
-        r = self._http("/api/system", method="GET")
-        return r if isinstance(r, dict) else {}
-
-    # ---- auth / detection
-    def login(self, user, pw):
-        r = self._http("/api/admin/token",
-                       form={"username": user, "password": pw, "grant_type": "password"})
-        tok = r.get("access_token") if isinstance(r, dict) else None
-        if tok:
-            self.jwt = self.token = tok; return True
-        return False
-    def authed(self): return self._code("/api/admin") == "200"
-    def probe(self):
-        if self.token: return self.authed()
-        return self._code("/api/cores") in ("401", "403")   # only Pasarguard has /api/cores
-
-    # ---- core config (inbounds)
-    def _core(self):
-        cores = self._items(self._http("/api/cores", method="GET"), "cores")
-        if not cores: return None
-        c = next((x for x in cores if "xray" in str(x.get("type", "xray")).lower()), cores[0])
-        self.core_id = c.get("id")
-        full = self._http(f"/api/core/{self.core_id}", method="GET")
-        if isinstance(full, dict) and full.get("config"): c = full
-        cfg = c.get("config")
-        if isinstance(cfg, str):
-            try: cfg = json.loads(cfg)
-            except Exception: return None
-        if not isinstance(cfg, dict): return None
-        c["config"] = cfg
-        return c
-    def _save_core(self, core, cfg):
-        body = {"name": core.get("name", "Xray"), "config": cfg,
-                "exclude_inbound_tags": core.get("exclude_inbound_tags") or [],
-                "fallbacks_inbound_tags": core.get("fallbacks_inbound_tags") or []}
-        r = self._http(f"/api/core/{self.core_id}?restart_nodes=true", body,
-                       method="PUT", timeout=60)
-        if not self._ok(r):
-            warn(f"Pasarguard core update rejected: {json.dumps(r)[:240]}")
-            return False
-        return True
-    @staticmethod
-    def _native(stream):
-        """3x-ui stream JSON -> plain Xray streamSettings (strip panel-only keys)."""
-        s = json.loads(json.dumps(stream))
-        s.pop("externalProxy", None)
-        (s.get("realitySettings") or {}).pop("settings", None)
-        t = s.get("tlsSettings")
-        if t:
-            t.pop("settings", None)
-            if not t.get("cipherSuites"): t.pop("cipherSuites", None)
-        return s
-
-    def list_inbounds(self):
-        c = self._core()
-        out = []
-        for ib in ((c or {}).get("config") or {}).get("inbounds", []) or []:
-            out.append({"tag": ib.get("tag"), "port": ib.get("port"),
-                        "protocol": ib.get("protocol"),
-                        "streamSettings": ib.get("streamSettings") or {}})
-        return out
-    def ports_owned(self):
-        tcp, udp = set(), set()
-        for ib in self.list_inbounds():
-            try: port = int(ib["port"])
-            except Exception: continue
-            net = (ib.get("streamSettings") or {}).get("network")
-            if (ib.get("protocol") or "") in ("hysteria","hysteria2","wireguard") or net in ("kcp","hysteria"):
-                udp.add(port)
-            else: tcp.add(port)
-        return tcp, udp
-    def add_inbound(self, remark, port, protocol, settings, stream, sniffing):
-        core = self._core()
-        if not core:
-            warn("Pasarguard: could not read the core config"); return None
-        cfg = core["config"]; ibs = cfg.setdefault("inbounds", [])
-        tag = f"pro-{protocol}-{port}"
-        if any(i.get("tag") == tag for i in ibs): tag += "-" + secrets.token_hex(2)
-        ibs.append({"tag": tag, "port": port, "protocol": protocol, "settings": settings,
-                    "streamSettings": self._native(stream), "sniffing": sniffing})
-        if not self._save_core(core, cfg): return None
-        if not self._group_tags(add=tag):
-            self.del_inbound(tag); return None
-        return tag
-    def del_inbound(self, tag):
-        core = self._core()
-        if not core: return False
-        cfg = core["config"]
-        cfg["inbounds"] = [i for i in cfg.get("inbounds", []) if i.get("tag") != tag]
-        ok = self._save_core(core, cfg)
-        self._group_tags(remove=tag)
-        return ok
-
-    # ---- group / user
-    def _group(self, first_tag=None):
-        if self.group_id: return self.group_id
-        for g in self._items(self._http("/api/groups", method="GET"), "groups"):
-            if g.get("name") == self.GROUP:
-                self.group_id = g.get("id"); return self.group_id
-        if not first_tag:
-            return None          # panel refuses groups with zero inbounds
-        r = self._http("/api/group", {"name": self.GROUP, "inbound_tags": [first_tag]}, method="POST")
-        if self._ok(r) and isinstance(r, dict): self.group_id = r.get("id")
-        else: warn(f"Pasarguard group create: {json.dumps(r)[:200]}")
-        return self.group_id
-    def _group_tags(self, add=None, remove=None):
-        gid = self._group(first_tag=add)
-        if not gid: return False
-        g = self._http(f"/api/group/{gid}", method="GET")
-        tags = [t for t in (g.get("inbound_tags") or []) if t != remove] if isinstance(g, dict) else []
-        if add and add not in tags: tags.append(add)
-        if not tags: return True  # panel needs >=1 inbound; leave the group as it is
-        r = self._http(f"/api/group/{gid}", {"name": self.GROUP, "inbound_tags": tags}, method="PUT")
-        if not self._ok(r):
-            warn(f"Pasarguard group update: {json.dumps(r)[:200]}")
-            return False
-        return True
-    def add_client(self, email, subid, password, inbound_ids):
-        gid = self._group()
-        if not gid: return False
-        body = {"username": email, "status": "active", "group_ids": [gid],
-                "note": "3x-ui-pro-configs",
-                "proxy_settings": {"trojan": {"password": password},
-                                   "vless": {"flow": "xtls-rprx-vision"}}}
-        r = self._http("/api/user", body, method="POST")
-        if self._ok(r) and isinstance(r, dict) and r.get("username"):
-            self._sub = r.get("subscription_url"); return True
-        warn(f"Pasarguard user create: {json.dumps(r)[:200]}")
-        return False
-    def attach_client(self, email, inbound_ids): return True   # access comes from the group
-    def detach_client(self, email, inbound_ids): return True
-    def clients_list(self):
-        return self._items(self._http("/api/users?limit=1000", method="GET"), "users")
-
-    # ---- hosts
-    def add_host(self, inbound_id, remark, address, extra, sort_order=0):
-        extra = extra or {}
-        body = {"remark": remark, "address": [address], "inbound_tag": inbound_id,
-                "priority": sort_order + 1, "status": ["active"], "security": "inbound_default"}
-        sni = extra.get("sni")
-        if sni: body["sni"] = [sni]
-        if extra.get("hostHeader"): body["host"] = [extra["hostHeader"]]
-        if extra.get("port"): body["port"] = int(extra["port"])
-        cdn = globals().get("CDN")
-        if sni and cdn and sni == cdn:           # CDN hosts: client speaks TLS to Cloudflare
-            body["security"] = "tls"; body["fingerprint"] = "chrome"
-        if extra.get("finalMask"):
-            try:
-                st = json.loads(extra["finalMask"])["tcp"][0]["settings"]
-                body["fragment_settings"] = {"xray": {"packets": st.get("packets", "tlshello"),
-                                                      "length": st["lengths"][0],
-                                                      "interval": st["delays"][0]}}
-            except Exception: pass
-        r = {}
-        for path in ("/api/host", "/api/hosts"):
-            r = self._http(path, body, method="POST")
-            if self._ok(r): return True
-            if not any(k in json.dumps(r).lower() for k in ("not found", "not allowed")): break
-        warn(f"Pasarguard host: {json.dumps(r)[:200]}")
-        return False
-
-    # ---- misc
-    def restart(self):
-        # core PUT already restarts; this is best-effort only
-        self._http("/api/core/restart", method="POST")
-    def xray_version(self):
-        v = self._system().get("xray_version")
-        if v: return v
-        for b in ["/var/lib/pasarguard/xray-core/xray", "/usr/local/bin/xray", "/usr/bin/xray"]:
-            if os.access(b, os.X_OK):
-                m = re.search(r"Xray (\d+[\d.]*)", sh(f"'{b}' version"))
-                if m: return m.group(1)
-        return "?"
-    def sub_urls(self, subid):                      # subid == username here
-        u = self._sub
-        if not u:
-            r = self._http(f"/api/user/{subid}", method="GET")
-            u = r.get("subscription_url") if isinstance(r, dict) else None
-        if u and u.startswith("/"): u = self.base + u
-        return (u, None)
-    def db_backup(self):
-        # we mutate the core config, so that is what we back up
-        c = self._core()
-        if not c: return None
-        dst = f"pasarguard-core-{self.core_id}.bak-pro-{int(time.time())}.json"
-        try:
-            json.dump(c, open(dst, "w"), indent=2); return os.path.abspath(dst)
-        except Exception: return None
-    def stage_cert(self, domain, cert, key):
-        # the panel usually runs in Docker; /var/lib/pasarguard is mounted at the same path
-        base = "/var/lib/pasarguard"
-        if not os.path.isdir(base): return cert, key
-        d = f"{base}/certs/{domain}"; os.makedirs(d, exist_ok=True)
-        shutil.copy(cert, f"{d}/fullchain.pem"); shutil.copy(key, f"{d}/privkey.pem")
-        os.chmod(f"{d}/privkey.pem", 0o600)
-        info(f"cert copied to {d} (re-copy after renewals)")
-        return f"{d}/fullchain.pem", f"{d}/privkey.pem"
-    def supports(self, key): return True
-
-_XUI_DB_URLS = set()
-def _xui_db_candidates(db="/etc/x-ui/x-ui.db"):
-    """Read the real web port / base path / TLS from the 3x-ui database."""
-    if not os.path.exists(db): return []
-    try:
-        import sqlite3
-        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
-        kv = dict(con.execute(
-            "SELECT key, value FROM settings WHERE key IN ('webPort','webBasePath','webCertFile')").fetchall())
-        con.close()
-    except Exception as e:
-        warn(f"could not read {db}: {e}"); return []
-    port = str(kv.get("webPort") or "").strip()
-    if not port.isdigit(): return []
-    base = "/" + str(kv.get("webBasePath") or "").strip("/") if str(kv.get("webBasePath") or "").strip("/") else ""
-    scheme = "https" if str(kv.get("webCertFile") or "").strip() else "http"
-    url = f"{scheme}://127.0.0.1:{port}{base}"
-    _XUI_DB_URLS.add(url)
-    info(f"3x-ui database says web panel is {url}")
-    return [url]
-
-def _detect_panel(force):
-    cands = []
-    if force == "3xui":       cands = [Panel3xui]
-    elif force == "marzban":  cands = [PanelMarzban]
-    elif force == "pasarguard": cands = [PanelPasarguard]
-    else:                     cands = [Panel3xui, PanelPasarguard, PanelMarzban]
-
-    candidates = []
-    if A.panel_url:
-        candidates.append(A.panel_url.rstrip("/"))
-    else:
-        env = {}
-        for p_env in ("/etc/x-ui/install-result.env", "/etc/3x-ui/install-result.env"):
-            if os.path.exists(p_env):
-                try:
-                    for l in open(p_env):
-                        if "=" in l:
-                            k, v = l.strip().split("=", 1); env[k] = v
-                except Exception: pass
-                break
-        xp = env.get("XUI_PANEL_PORT")
-        xb = env.get("XUI_WEB_BASE_PATH") or ""
-        if not xp:
-            raw = re.sub(r"\x1b\[[0-9;]*m", "", sh("x-ui settings 2>/dev/null"))
-            xp = (re.search(r"port:\s*(\d+)", raw) or [None, None])[1]
-            xb = (re.search(r"webBasePath:\s*(\S+)", raw) or [None, xb])[1] or xb
-        base_path = "/" + xb.strip("/") if xb and xb.strip("/") else ""
-        if xp:
-            candidates.append(f"http://127.0.0.1:{xp}{base_path}")
-            if base_path: candidates.append(f"http://127.0.0.1:{xp}")
-        if force in ("marzban","pasarguard"):
-            candidates.insert(0, "http://127.0.0.1:8000")
-        for pt in (2053, 2083, 2087, 2096, 8000, 8080, 8443, 9000, 3000, 5000, 1800, 1801):
-            candidates.append(f"http://127.0.0.1:{pt}")
-
-    # Pasarguard / Marzban: read the panel's own .env for the real port + TLS mode
-    if force in ("marzban", "pasarguard", "auto") and not A.panel_url:
-        for envf in ("/opt/pasarguard/.env", "/opt/marzban/.env"):
-            if os.path.exists(envf):
-                try:
-                    e = dict(l.strip().split("=", 1) for l in open(envf)
-                             if "=" in l and not l.lstrip().startswith("#"))
-                    pt  = (e.get("UVICORN_PORT") or "8000").strip("\"' ")
-                    sch = "https" if (e.get("UVICORN_SSL_CERTFILE") or "").strip("\"' ") else "http"
-                    candidates.insert(0, f"{sch}://127.0.0.1:{pt}")
-                except Exception: pass
-
-    if force in ("3xui", "auto") and not A.panel_url:
-        candidates[0:0] = _xui_db_candidates()
-    seen, ordered = set(), []
-    for u in candidates:
-        if u not in seen: seen.add(u); ordered.append(u)
-
-    listening = set()
-    for l in sh("ss -H -tlnp").splitlines():
-        m = re.search(r":(\d+)\s", l) or re.search(r":(\d+)$", l)
-        if m:
-            try: listening.add(int(m.group(1)))
-            except: pass
-    if listening:
-        info(f"listening TCP ports: {sorted(listening)[:25]}")
-
-    token = A.token or A.api_key or ""
-    for cls in cands:
-        for u in ordered:
-            variants = [u] + ([u.replace("http://", "https://", 1)] if (cls is not Panel3xui and u.startswith("http://")) else [])
-            for uu in variants:
-                pu = urllib.parse.urlparse(uu)
-                if pu.port and pu.hostname in ("127.0.0.1", "localhost") and pu.port not in listening:
-                    continue
-                try:
-                    pn = cls(uu, token, [])
-                    if cls in (PanelMarzban, PanelPasarguard) and not token and A.panel_user and A.panel_pass:
-                        pn.login(A.panel_user, A.panel_pass)
-                    if pn.probe():
-                        return pn
-                except Exception:
-                    continue
-    return None
-
-# ═══════════════════════════════════════════════════════════════════════════
-#  MODE + PANEL SUB-MENU
-# ═══════════════════════════════════════════════════════════════════════════
-print(f"{B}{C}{BANNER}{N}")
-print(f"{D}        {PRO_TITLE}  ·  {SCAN_TITLE}{N}")
-print(f"{D}        {USER_REPO}{N}\n")
-
-if A.scan:
-    clear_screen(); run_scanner(); sys.exit(0)
-
-MODE_CHOICE = "install"
-if INTERACTIVE and not A.install:
-    print(f"{B}What do you want to do?{N}")
-    print(f"  {B}1{N}) {G}Install Pro Configs{N}   {D}(3x-ui / Marzban / Pasarguard){N}")
-    print(f"  {B}2{N}) {C}Run the Proxy Scanner only{N}")
-    print(f"  {B}3{N}) {Y}Both{N}")
-    mc = ask("Choice", "1").strip().lower()
-    MODE_CHOICE = {"2":"scan","3":"both","1":"install"}.get(mc,"install")
-if MODE_CHOICE == "scan":
-    clear_screen(); run_scanner(); sys.exit(0)
-
-PANEL_FORCE = (A.panel or "").lower()
-if PANEL_FORCE in ("3xui","3x-ui"):   PANEL_FORCE = "3xui"
-elif PANEL_FORCE == "marzban":        PANEL_FORCE = "marzban"
-elif PANEL_FORCE == "pasarguard":     PANEL_FORCE = "pasarguard"
-else:                                 PANEL_FORCE = ""
-
-if not PANEL_FORCE and INTERACTIVE and not A.install:
-    print(f"\n{B}Which panel?{N}")
-    print(f"  {B}1{N}) {G}3x-ui{N}         {D}(full catalog — PQ / REALITY included){N}")
-    print(f"  {B}2{N}) {C}Marzban{N}       {D}(PQ / REALITY marked 'coming soon'){N}")
-    print(f"  {B}3{N}) {Y}Pasarguard{N}    {D}(full catalog — admin login, edits the Xray core config){N}")
-    print(f"  {B}4{N}) {Y}Auto-detect{N}   {D}(3x-ui → Pasarguard → Marzban){N}")
-    pc_choice = ask("Choice", "1").strip().lower()
-    PANEL_FORCE = {"1":"3xui","2":"marzban","3":"pasarguard","4":"auto"}.get(pc_choice, "3xui")
-if not PANEL_FORCE: PANEL_FORCE = "auto"
-
-# =========================================================================== panel
-head("Panel")
-PANEL = _detect_panel(PANEL_FORCE)
-if not PANEL:
-    die("No supported panel found. "
-        "Pass --panel 3xui|marzban|pasarguard --panel-url http://host:port [--token …] "
-        "[--panel-user … --panel-pass …]")
-
-if PANEL.name == "3x-ui":
-    if not PANEL.token:
-        if not INTERACTIVE: die("3x-ui needs --token / --api-key.")
-        t = ask("3x-ui API token (Settings > API Tokens)")
-        if t: PANEL.token = t
-        else: die("no token — aborting")
-    if not PANEL._http("/panel/api/inbounds/list").get("success"):
-        die("Token rejected by 3x-ui API.")
-elif PANEL.name == "Marzban":
-    if not getattr(PANEL, "jwt", None) and not PANEL.token:
-        if not INTERACTIVE and not (A.panel_user and A.panel_pass):
-            die("Marzban needs --panel-user / --panel-pass.")
-        u = A.panel_user or ask("Marzban username", "admin")
-        pw = A.panel_pass or ask("Marzban password")
-        if not PANEL.login(u, pw): die("Marzban login failed.")
-    if not PANEL.probe():
-        die("Marzban login did not produce a valid session.")
-elif PANEL.name == "Pasarguard":
-    if not PANEL.token:
-        if not INTERACTIVE and not (A.panel_user and A.panel_pass):
-            die("Pasarguard needs --panel-user / --panel-pass (or --token with an existing JWT).")
-        u  = A.panel_user or ask("Pasarguard admin username", "admin")
-        pw = A.panel_pass or ask("Pasarguard admin password")
-        if not PANEL.login(u, pw): die("Pasarguard login failed.")
-    if not PANEL.authed(): die("Pasarguard session not accepted.")
-
-XVER = PANEL.xray_version()
-info(f"panel {PANEL.name} at {PANEL.base} · xray {XVER}")
-if PANEL.name == "Marzban":
-    warn("Marzban: PQ Sudoku and REALITY PQ configs are marked 'coming soon'")
-if PANEL.name == "Pasarguard" and XVER != "?" and not XVER.startswith("26"):
-    warn(f"Pasarguard Xray {XVER}: PQ / finalmask configs need a recent Xray-core (26+)")
-
-_xray_candidates = (
-    glob.glob("/usr/local/x-ui/bin/xray-linux-*")
-    + glob.glob("/usr/local/x-ui/bin/xray")
-    + glob.glob("/var/lib/pasarguard/xray-core/xray")
-    + glob.glob("/var/lib/marzban/xray-core/xray")
-    + glob.glob("/usr/local/bin/xray")
-    + glob.glob("/usr/bin/xray")
+BLOCKED_PATTERNS = (
+    "rm -rf /", "rm -rf /*", "mkfs", ":(){", "dd if=/dev/zero",
+    "> /dev/sda", "chmod -R 000 /", ":(){:|:&};:",
 )
-XRAY = next((p for p in _xray_candidates if p and os.access(p, os.X_OK)), "")
-if not XRAY:
-    warn("xray binary not found — REALITY / PQ configs will fail")
-else:
-    info(f"xray binary: {XRAY}")
-    _test = sh(f"'{XRAY}' x25519 2>/dev/null")
-    if "PrivateKey" not in _test and "Private key" not in _test:
-        warn("xray x25519 returned nothing — REALITY will be skipped")
 
-DB = "/etc/x-ui/x-ui.db"
-settings = {} if PANEL.name != "3x-ui" else (PANEL._http("/panel/api/setting/all", method="POST").get("obj") or {})
-inbs = PANEL.list_inbounds()
+def _is_destructive(cmd):
+    c = cmd.lower()
+    return any(p in c for p in BLOCKED_PATTERNS)
 
-# =========================================================================== server facts
-PUB4 = sh("curl -4 -s -m6 https://api.ipify.org")
-PUB6 = ""
-for l in sh("ip -6 addr show scope global").splitlines():
-    m = re.search(r"inet6 ([0-9a-f:]+)/\d+ .*scope global", l)
-    if m and "temporary" not in l and "deprecated" not in l and not m.group(1).startswith(("fd","fc")):
-        PUB6 = m.group(1); break
-if PUB6 and not sh("curl -6 -s -m6 https://api64.ipify.org"): PUB6 = ""
 
-CF_NETS = [ipaddress.ip_network(n) for n in (
-    "173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 "
-    "188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 "
-    "131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 "
-    "2c0f:f248::/32").split()]
-def ips_of(d):
-    try: return sorted({a[4][0] for a in socket.getaddrinfo(d, None)})
-    except Exception: return []
-is_cf = lambda ip: any(ipaddress.ip_address(ip) in n for n in CF_NETS if ipaddress.ip_address(ip).version == n.version)
+def tool_get_current_time(_a):
+    return datetime.now(timezone.utc).isoformat()
 
-def find_cert(d):
-    cands = [(f"/root/cert/{d}/fullchain.pem", f"/root/cert/{d}/privkey.pem"),
-             (f"/root/.acme.sh/{d}_ecc/fullchain.cer", f"/root/.acme.sh/{d}_ecc/{d}.key"),
-             (f"/root/.acme.sh/{d}/fullchain.cer", f"/root/.acme.sh/{d}/{d}.key"),
-             (f"/etc/letsencrypt/live/{d}/fullchain.pem", f"/etc/letsencrypt/live/{d}/privkey.pem")]
-    for c, k in cands:
-        if os.path.exists(c) and os.path.exists(k):
-            names = sh(f"openssl x509 -in '{c}' -noout -ext subjectAltName 2>/dev/null")
-            if f"DNS:{d}" in names or f"DNS:*.{d.split('.',1)[-1]}" in names:
-                if sh(f"openssl x509 -in '{c}' -noout -checkend 86400 >/dev/null && echo ok") == "ok":
-                    return c, k
-    return None, None
 
-def issue_cert(d):
-    if sh("ss -H -tln 'sport = :80'"):
-        warn("Port 80 busy — cannot issue cert."); return None, None
-    acme = os.path.expanduser("~/.acme.sh/acme.sh")
-    if not os.path.exists(acme): sh("curl -s https://get.acme.sh | sh -s email=admin@" + d, 180)
-    if not os.path.exists(acme): warn("acme.sh install failed."); return None, None
-    sh(f"{acme} --set-default-ca --server letsencrypt", 60)
-    out = sh(f"{acme} --issue -d {d} --standalone --httpport 80 --keylength ec-256 --force", 240)
-    os.makedirs(f"/root/cert/{d}", exist_ok=True)
-    sh(f"{acme} --install-cert -d {d} --ecc --fullchain-file /root/cert/{d}/fullchain.pem "
-       f"--key-file /root/cert/{d}/privkey.pem --reloadcmd 'x-ui restart'", 60)
-    if os.path.exists(f"/root/cert/{d}/fullchain.pem"):
-        info(f"cert issued for {d}"); return f"/root/cert/{d}/fullchain.pem", f"/root/cert/{d}/privkey.pem"
-    warn("cert failed:", out[-200:]); return None, None
+def tool_calculate(a):
+    e = a.get("expression", "").strip()
+    if not e: return _err("empty expression")
+    if any(ch not in "0123456789+-*/(). " for ch in e):
+        return _err(f"disallowed character in {e!r}")
+    try: return str(eval(e, {"__builtins__": {}}, {}))
+    except Exception as ex: return _err(f"evaluation failed: {ex}")
 
-# =========================================================================== 1. domain
-head("1/4  Your domain (direct, Cloudflare grey cloud)")
-print(f"  {D}Used for TLS/CDN configs. Must point straight to this server ({PUB4}).{N}")
-DOMAIN = (A.domain if A.domain is not None else ask("Domain (Enter = none, REALITY + plain only)", "")).strip().lower()
-CERT = KEY = None
-if DOMAIN:
-    ips = ips_of(DOMAIN)
-    if not ips: warn(f"{DOMAIN} does not resolve."); DOMAIN = ""
-    elif any(is_cf(i) for i in ips):
-        warn(f"{DOMAIN} orange-clouded — must be grey."); DOMAIN = ""
-    else:
-        if PUB4 not in ips and (not PUB6 or PUB6 not in ips):
-            warn(f"{DOMAIN} → {', '.join(ips)}, not to this server ({PUB4}).")
-        CERT, KEY = find_cert(DOMAIN)
-        if CERT: info(f"cert: {CERT}")
-        elif yes(f"No cert for {DOMAIN}. Issue one?", True):
-            CERT, KEY = issue_cert(DOMAIN)
-        if not CERT: warn("No cert — TLS/CDN configs skipped.")
-if CERT and PANEL.name in ("Pasarguard", "Marzban"):
-    CERT, KEY = PANEL.stage_cert(DOMAIN, CERT, KEY)
-ADDR = DOMAIN or PUB4
 
-# =========================================================================== 2. CDN
-CDN = ""
-if CERT:
-    head("2/4  CDN domain (Cloudflare orange cloud)")
-    CDN = (A.cdn if A.cdn is not None else ask("CDN domain (Enter = skip)", "")).strip().lower()
-    if CDN:
-        ips = ips_of(CDN)
-        if not ips: warn(f"{CDN} does not resolve."); CDN = ""
-        elif not any(is_cf(i) for i in ips): warn(f"{CDN} not proxied."); CDN = ""
-        else: info(f"{CDN} is behind Cloudflare")
-
-# =========================================================================== 3. configs
-CATALOG = [
-    ("tch",   f"{BRAND}👾Trojan • HU • CDN", "cdn", "Trojan + HTTPUpgrade (no TLS), over CDN"),
-    ("tcht",  f"{BRAND}👾Trojan • HU • CDN • TLS", "cdn", "Trojan + HTTPUpgrade + TLS, over CDN"),
-    ("tws",   f"{BRAND}👾Trojan • WS", "tls", "Trojan + WS"),
-    ("twsp",  f"{BRAND}🧬Trojan • WS • PQ", None, "Trojan + WS + PQ Sudoku"),
-    ("twst",  f"{BRAND}👾Trojan • WS • TLS", "tls", "Trojan + WS + TLS"),
-    ("twstp", f"{BRAND}🧬Trojan • WS • TLS • PQ", "tls", "Trojan + WS + TLS + PQ Sudoku"),
-    ("thu",   f"{BRAND}👾Trojan • HU • Plain", None, "Trojan + HTTPUpgrade (plain TCP)"),
-    ("trhv",  f"{BRAND}👾Trojan • REALITY • HU", None, "Trojan + REALITY + HTTPUpgrade"),
-    ("trxp",  f"{BRAND}👾Trojan • REALITY • XH", None, "Trojan + REALITY + XHTTP"),
-    ("trgp",  f"{BRAND}👾Trojan • REALITY • gRPC", None, "Trojan + REALITY + gRPC"),
-    ("rvpq",  f"{BRAND}🧬Reality • Vision • PQ", None, "VLESS + REALITY TCP + PQ Sudoku"),
-    ("rxpq",  f"{BRAND}🧬Reality • XHTTP • PQ", None, "VLESS + REALITY XHTTP + PQ Sudoku"),
-    ("rgpq",  f"{BRAND}🧬Reality • gRPC • PQ", None, "VLESS + REALITY gRPC + PQ Sudoku"),
-]
-avail = [c for c in CATALOG if c[2] is None or (c[2] == "tls" and CERT) or (c[2] == "cdn" and CDN)]
-
-head("3/4  Which configs to add")
-for n, (k, name, _, desc) in enumerate(avail, 1):
-    tag = "" if PANEL.supports(k) else f" {Y}{COMING_SOON}{N}"
-    print(f"  {B}{n:2d}{N}) {name:52s} {D}{desc}{N}{tag}")
-skipped = [c[1] for c in CATALOG if c not in avail]
-if skipped: print(f"  {D}not available: {', '.join(skipped)}{N}")
-if PANEL.name == "Marzban":
-    warn("Marzban: PQ / REALITY configs are 'coming soon' — they will be skipped if selected.")
-if not XRAY or not sh(f"'{XRAY}' x25519 2>/dev/null"):
-    warn("REALITY configs need working `xray x25519`. Install Xray 26+ via panel → Xray → Update.")
-
-# ─── AUTO-SCAN REALITY CAMOUFLAGE TARGETS ───────────────────────────────
-def _tls13_h2_probe(dom):
-    if not dom or not re.match(r"^[A-Za-z0-9.\-]+$", dom):
-        return None
-    t0 = time.time()
-    out = sh(f"echo | timeout 4 openssl s_client -connect {dom}:443 -servername {dom} -alpn h2 -tls1_3 2>/dev/null", 6)
-    if "TLSv1.3" not in out or "ALPN protocol: h2" not in out:
-        return None
-    return (dom, int((time.time() - t0) * 1000))
-
-SNI_FALLBACK = [
-    "dl.google.com","addons.mozilla.org","www.samsung.com","www.nvidia.com",
-    "www.speedtest.net","www.amd.com","www.asus.com","www.lovelive-anime.jp",
-    "www.microsoft.com","www.apple.com","www.cloudflare.com","www.icloud.com",
-    "www.zoom.us","www.github.com","www.wikipedia.org","www.bing.com",
-    "www.python.org","www.ubuntu.com","www.mozilla.org","www.docker.com",
-]
-
-def discover_reality_targets(need_n=8):
-    cache = "reality-targets.txt"
-    if getattr(A, "no_reality_scan", False):
-        info("--no-reality-scan set → using built-in fallback pool")
-        return list(SNI_FALLBACK)[:need_n]
-    if getattr(A, "fresh_reality_scan", False):
-        try: os.remove(cache)
-        except Exception: pass
-    if os.path.exists(cache):
+def tool_list_directory(a):
+    rel = a.get("path", "").strip()
+    try: t = _safe_resolve(rel)
+    except ValueError as e: return _err(str(e))
+    if not t.exists(): return _err(f"path not found: {t}")
+    if not t.is_dir(): return _err(f"not a directory: {t}")
+    try: items = sorted(t.iterdir())
+    except PermissionError: return _err("permission denied")
+    result = []
+    for p in items[:300]:
         try:
-            age = time.time() - os.path.getmtime(cache)
-            if age < 6 * 3600:
-                cached = [l.split("#")[0].strip() for l in open(cache, encoding="utf-8")
-                          if l.strip() and not l.startswith("#")]
-                if len(cached) >= need_n:
-                    info(f"using cached reality targets ({len(cached)} from {cache}, age {int(age/60)}m)")
-                    return cached[:need_n]
+            st = p.stat()
+            result.append({"name": p.name,
+                            "type": "dir" if p.is_dir() else "file",
+                            "size": st.st_size if p.is_file() else None,
+                            "modified": datetime.fromtimestamp(st.st_mtime).isoformat()})
+        except Exception:
+            result.append({"name": p.name, "type": "unknown"})
+    return json.dumps(result, indent=2)
+
+
+def tool_read_file(a):
+    rel = a.get("path", "").strip()
+    if not rel: return _err("path required")
+    try: t = _safe_resolve(rel)
+    except ValueError as e: return _err(str(e))
+    if not t.exists(): return _err(f"file not found: {t}")
+    if not t.is_file(): return _err(f"not a file: {t}")
+    try: data = t.read_text(encoding="utf-8", errors="replace")
+    except PermissionError: return _err("permission denied")
+    if len(data) > 200 * 1024:
+        data = data[:200 * 1024] + "\n\n... [truncated at 200 KB]"
+    return data
+
+
+def tool_write_file(a):
+    rel = a.get("path", "").strip()
+    content = a.get("content", "")
+    if not rel: return _err("path required")
+    try: t = _safe_resolve(rel)
+    except ValueError as e: return _err(str(e))
+    if t.exists() and t.is_dir(): return _err(f"target is a directory: {t}")
+    try:
+        t.parent.mkdir(parents=True, exist_ok=True)
+        t.write_text(content, encoding="utf-8")
+        return _ok(f"wrote {t.stat().st_size} bytes to {t}",
+                    path=str(t), size=t.stat().st_size)
+    except PermissionError: return _err(f"permission denied: {t}")
+    except Exception as e: return _err(f"{type(e).__name__}: {e}")
+
+
+def tool_edit_file(a):
+    rel = a.get("path", "").strip()
+    old = a.get("old_string", "")
+    new = a.get("new_string", "")
+    if not rel: return _err("path required")
+    if not old: return _err("old_string required")
+    try: t = _safe_resolve(rel)
+    except ValueError as e: return _err(str(e))
+    if not t.exists(): return _err(f"file not found: {t}")
+    if not t.is_file(): return _err(f"not a file: {t}")
+    try: content = t.read_text(encoding="utf-8")
+    except PermissionError: return _err("permission denied")
+    count = content.count(old)
+    if count == 0: return _err(f"old_string not found in {t}")
+    if count > 1: return _err(f"old_string appears {count} times — must be unique")
+    try:
+        t.write_text(content.replace(old, new, 1), encoding="utf-8")
+        return _ok(f"edited {t}", path=str(t))
+    except PermissionError: return _err("permission denied")
+
+
+def tool_make_dir(a):
+    rel = a.get("path", "").strip()
+    if not rel: return _err("path required")
+    try: t = _safe_resolve(rel)
+    except ValueError as e: return _err(str(e))
+    try:
+        t.mkdir(parents=True, exist_ok=True)
+        return _ok(f"created {t}", path=str(t))
+    except PermissionError: return _err("permission denied")
+    except Exception as e: return _err(f"{type(e).__name__}: {e}")
+
+
+def tool_delete_file(a):
+    rel = a.get("path", "").strip()
+    if not rel: return _err("path required")
+    try: t = _safe_resolve(rel)
+    except ValueError as e: return _err(str(e))
+    if not t.exists(): return _err(f"file not found: {t}")
+    if t.is_dir(): return _err(f"target is a directory (not deleting): {t}")
+    try:
+        t.unlink()
+        return _ok(f"deleted {t}", path=str(t))
+    except PermissionError: return _err("permission denied")
+
+
+def tool_run_shell(a):
+    cmd = a.get("command", "").strip()
+    if not cmd: return _err("command required")
+    if _is_destructive(cmd): return _err("refused: destructive command detected")
+    try: timeout = max(1, min(int(a.get("timeout", 30)), 300))
+    except (ValueError, TypeError): timeout = 30
+    try:
+        r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
+                            timeout=timeout, cwd=str(Path.home()))
+        out = r.stdout
+        err = r.stderr
+        combined = ""
+        if out: combined += out
+        if err:
+            if combined: combined += "\n"
+            combined += f"[stderr]\n{err}"
+        if r.returncode != 0: combined += f"\n[exit code: {r.returncode}]"
+        return combined[:10000] or "(no output)"
+    except subprocess.TimeoutExpired: return _err(f"timed out after {timeout}s")
+    except FileNotFoundError as e: return _err(f"command not found: {e}")
+    except Exception as e: return _err(f"{type(e).__name__}: {e}")
+
+
+def tool_run_python(a):
+    code = a.get("code", "")
+    if not code: return _err("code required")
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False,
+                                          prefix="ai_agent_", encoding="utf-8") as f:
+            f.write(code); tmp = f.name
+        try:
+            r = subprocess.run(["python3", tmp], capture_output=True, text=True,
+                                timeout=60, cwd=str(Path.home()))
+            out = r.stdout
+            err = r.stderr
+            combined = ""
+            if out: combined += out
+            if err:
+                if combined: combined += "\n"
+                combined += f"[stderr]\n{err}"
+            if r.returncode != 0: combined += f"\n[exit code: {r.returncode}]"
+            return combined[:10000] or "(no output)"
+        finally:
+            try: os.unlink(tmp)
+            except Exception: pass
+    except subprocess.TimeoutExpired: return _err("python timed out (60s)")
+    except Exception as e: return _err(f"{type(e).__name__}: {e}")
+
+
+TOOL_IMPLS = {
+    "get_current_time": tool_get_current_time,
+    "calculate": tool_calculate,
+    "list_directory": tool_list_directory,
+    "read_file": tool_read_file,
+    "write_file": tool_write_file,
+    "edit_file": tool_edit_file,
+    "make_dir": tool_make_dir,
+    "delete_file": tool_delete_file,
+    "run_shell": tool_run_shell,
+    "run_python": tool_run_python,
+}
+PYEOF
+}
+
+# ============================================================================
+#  WRITE: runner/tui.py  (terminal chat)
+# ============================================================================
+write_tui() {
+  cat > "$RUNNER_DIR/tui.py" <<'PYEOF'
+"""AyhanX-Agent — terminal chat."""
+import html, json, os, sys
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+import httpx
+from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import WordCompleter
+from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.history import FileHistory
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.styles import Style
+from rich import box
+from rich.console import Console, Group
+from rich.live import Live
+from rich.markdown import Markdown
+from rich.panel import Panel
+from rich.spinner import Spinner
+from rich.table import Table
+from rich.text import Text
+from .tools import TOOL_IMPLS, TOOL_SPECS
+
+VERSION = os.environ.get("AI_RUNNER_VERSION", "4.0.0")
+APP_DIR = Path(os.environ.get("APP_DIR", Path.home() / ".ai_platform"))
+CONFIG_PATH = APP_DIR / "config.json"
+HISTORY_PATH = APP_DIR / "history.txt"
+CHATS_DIR = APP_DIR / "chats"
+PROVIDERS_FILE = APP_DIR / "providers.json"
+CHATS_DIR.mkdir(parents=True, exist_ok=True)
+
+PROVIDER = os.environ.get("AYHANX_PROVIDER", "deepseek")
+LOCAL_PROVIDERS = {"ollama", "lmstudio", "vllm", "llamacpp", "localai"}
+
+PROVIDER_DEFAULTS = {
+    "deepseek":   {"url": "https://api.deepseek.com", "model": "deepseek-chat"},
+    "openrouter": {"url": "https://openrouter.ai/api/v1", "model": "deepseek/deepseek-chat"},
+    "groq":       {"url": "https://api.groq.com/openai/v1", "model": "llama-3.3-70b-versatile"},
+    "google":     {"url": "https://generativelanguage.googleapis.com/v1beta/openai", "model": "gemini-2.5-flash"},
+    "ollama":     {"url": "http://localhost:11434/v1", "model": "qwen2.5:3b"},
+    "lmstudio":   {"url": "http://localhost:1234/v1", "model": "local-model"},
+    "vllm":       {"url": "http://localhost:8000/v1", "model": "local-model"},
+    "llamacpp":   {"url": "http://localhost:8080/v1", "model": "local-model"},
+    "localai":    {"url": "http://localhost:8080/v1", "model": "local-model"},
+}
+
+PROVIDER_MODELS = {
+    "deepseek": ["deepseek-chat", "deepseek-reasoner"],
+    "openrouter": ["deepseek/deepseek-chat", "deepseek/deepseek-chat-v3-0324:free",
+                   "deepseek/deepseek-r1:free", "meta-llama/llama-3.3-70b-instruct:free",
+                   "qwen/qwen-2.5-72b-instruct:free", "microsoft/phi-4:free"],
+    "groq": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768", "gemma2-9b-it"],
+    "google": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-flash-latest", "gemini-flash-lite-latest"],
+    "ollama": [], "lmstudio": [], "vllm": [], "llamacpp": [], "localai": [],
+}
+
+LABELS = {"deepseek": "DeepSeek", "openrouter": "OpenRouter", "groq": "Groq",
+          "google": "Google AI Studio", "ollama": "Ollama", "lmstudio": "LM Studio",
+          "vllm": "vLLM", "llamacpp": "llama.cpp", "localai": "LocalAI"}
+
+def provider_label(name=None): return LABELS.get(name or PROVIDER, (name or PROVIDER))
+def is_local(name=None): return (name or PROVIDER) in LOCAL_PROVIDERS
+
+def load_providers():
+    if PROVIDERS_FILE.exists():
+        try: return json.loads(PROVIDERS_FILE.read_text())
         except Exception: pass
-    pool = list(SNI_FALLBACK)
-    try:
-        RD_LIST = ("https://raw.githubusercontent.com/AyhanMansur/AyhanX-Fredom-Scanner/"
-                   "refs/heads/main/domains.txt")
-        raw = sh(f"curl -fsSL -m 15 {RD_LIST}")
-        if raw:
-            extra = [l.strip() for l in raw.splitlines() if l.strip() and not l.startswith("#") and "." in l]
-            seen = set(pool)
-            for d in extra:
-                if d not in seen:
-                    pool.append(d); seen.add(d)
-                    if len(pool) >= 60: break
-            info(f"fetched {len(extra)} extra candidates from upstream")
+    name = PROVIDER
+    d = PROVIDER_DEFAULTS.get(name, PROVIDER_DEFAULTS["deepseek"])
+    return {name: {"key": os.environ.get("DEEPSEEK_API_KEY", "local" if is_local(name) else ""),
+                    "url": os.environ.get("DEEPSEEK_BASE_URL", d["url"]),
+                    "model": os.environ.get("DEEPSEEK_MODEL", d["model"])}}
+
+def save_providers(data):
+    PROVIDERS_FILE.write_text(json.dumps(data, indent=2))
+    try: os.chmod(PROVIDERS_FILE, 0o600)
     except Exception: pass
-    info(f"probing {len(pool)} camouflage candidates (TLS 1.3 + ALPN h2) …")
-    t0 = time.time()
-    results = []
-    with cfut.ThreadPoolExecutor(16) as ex:
-        for r in ex.map(_tls13_h2_probe, pool):
-            if r: results.append(r)
-    results.sort(key=lambda t: t[1])
-    took = int(time.time() - t0)
-    good = [d for d, _ in results]
-    if not good:
-        warn("no candidate answered TLS 1.3 + ALPN h2 — using built-in fallback")
-        good = list(SNI_FALLBACK)
-    else:
-        info(f"found {len(good)} working camouflage targets in {took}s "
-             f"(fastest: {good[0]} @ {results[0][1]}ms)")
-    try:
-        with open(cache, "w", encoding="utf-8") as f:
-            f.write("# REALITY camouflage targets — auto-scanned\n")
-            f.write(f"# generated {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-            for d, ms in results[:need_n * 2]:
-                f.write(f"{d}  # {ms}ms\n")
+
+def switch_provider(name, providers, cfg):
+    global PROVIDER, IS_LOCAL, MODELS, PROVIDER_LABEL
+    if name not in providers: return False
+    p = providers[name]
+    os.environ["DEEPSEEK_API_KEY"] = p["key"]
+    os.environ["DEEPSEEK_BASE_URL"] = p["url"]
+    os.environ["DEEPSEEK_MODEL"] = p["model"]
+    os.environ["AYHANX_PROVIDER"] = name
+    try: (APP_DIR / "provider").write_text(name)
     except Exception: pass
-    return good[:need_n]
+    PROVIDER = name
+    PROVIDER_LABEL = provider_label(name)
+    IS_LOCAL = is_local(name)
+    MODELS = PROVIDER_MODELS.get(name, [])
+    cfg.model = p["model"]; cfg.save()
+    return True
 
-_pre_sel = None
-if A.configs:
-    _pre_sel = [x.strip() for x in A.configs.split(",")]
-_reality_picked = bool(_pre_sel and any(k in _pre_sel for k in ("rvpq","rxpq","rgpq","trhv","trxp","trgp")))
+PROVIDER_LABEL = provider_label()
+IS_LOCAL = is_local()
+MODELS = PROVIDER_MODELS.get(PROVIDER, PROVIDER_MODELS["deepseek"])
+START = os.environ.get("AYHANX_START", "new")
 
-if _reality_picked:
-    GOOD_SNI = discover_reality_targets(need_n=8)
-else:
-    GOOD_SNI = list(SNI_FALLBACK)
-sni = lambda i: GOOD_SNI[i % len(GOOD_SNI)]
+def all_models(cfg): return MODELS + [m for m in cfg.custom_models if m not in MODELS]
+def save_last(conv):
+    if conv.messages: (CHATS_DIR / "last.json").write_text(json.dumps(conv.messages, indent=2))
 
-if A.configs:
-    sel_keys = [c[0] for c in avail] if A.configs.strip() == "all" else [x.strip() for x in A.configs.split(",")]
-else:
-    ans = ask("Numbers separated by comma, or 'all'", "all")
-    if ans.strip().lower() == "all": sel_keys = [c[0] for c in avail]
-    else:
-        idx = {int(x) for x in re.findall(r"\d+", ans)}
-        sel_keys = [avail[i-1][0] for i in sorted(idx) if 1 <= i <= len(avail)]
-SEL = [c for c in avail if c[0] in sel_keys]
-if not SEL: die("Nothing selected.")
-
-filtered = []
-for c in SEL:
-    if PANEL.supports(c[0]): filtered.append(c)
-    else: warn(f"{c[1]}: {COMING_SOON} on {PANEL.name} — skipped")
-SEL = filtered
-if not SEL: die(f"All selected configs are {COMING_SOON} on {PANEL.name}. Use 3x-ui or Pasarguard for full support.")
-
-if not _reality_picked and any(k in sel_keys for k in ("rvpq","rxpq","rgpq","trhv","trxp","trgp")):
-    GOOD_SNI = discover_reality_targets(need_n=8)
-    sni = lambda i: GOOD_SNI[i % len(GOOD_SNI)]
-    head(f"REALITY camouflage targets ({len(GOOD_SNI)})")
-    for d in GOOD_SNI:
-        print(f"  {G}▸{N} {d}")
-elif any(k in sel_keys for k in ("rvpq","rxpq","rgpq","trhv","trxp","trgp")):
-    print(f"  {D}REALITY camouflage targets (auto-scanned, fastest first): "
-          f"{', '.join(GOOD_SNI[:5])}{'…' if len(GOOD_SNI) > 5 else ''}{N}")
-
-CLEAN_N = 0
-if any(k in sel_keys for k in ("tch","tcht")):
-    CLEAN_N = int(A.clean) if A.clean is not None else int(re.sub(r"\D","", ask(
-        "How many Cloudflare clean-IP configs (0-30)", "20")) or 0)
-    CLEAN_N = max(0, min(30, CLEAN_N))
-
-# =========================================================================== ports
-owner_tcp_set, owner_udp_set = PANEL.ports_owned()
-owner_tcp = {pt: "panel" for pt in owner_tcp_set if pt}
-owner_udp = {pt: "panel" for pt in owner_udp_set if pt}
-for flag, dct in (("t", owner_tcp), ("u", owner_udp)):
-    for l in sh(f"ss -H -{flag}lnp").splitlines():
-        f = l.split()
-        if len(f) < 5: continue
-        m = re.search(r":(\d+)$", f[3])
-        if m and int(m.group(1)) not in dct:
-            pm = re.search(r'\(\("([^"]+)"', l)
-            dct[int(m.group(1))] = pm.group(1) if pm else "?"
-
-CF_HTTPS = [443, 2053, 2083, 2087, 2096, 8443]
-PREF = {
-    "tch":   [2083, 2053, 2087, 2096, 8443],
-    "tcht":  [2087, 2053, 2083, 2096, 8443],
-    "tws":   [8082, 8182, 8282, 8382, 8482],
-    "twsp":  [8084, 8184, 8284, 8384, 8484],
-    "twst":  [9443, 10443, 11443, 12443, 13443],
-    "twstp": [9543, 10543, 11543, 12543, 13543],
-    "thu":   [8086, 8186, 8286, 8386, 8486],
-    "trhv":  [8446, 8546, 8646, 8746, 8846],
-    "trxp":  [8447, 8547, 8647, 8747, 8847],
-    "trgp":  [8448, 8548, 8648, 8748, 8848],
-    "rvpq":  [443, 2443, 3443, 6443, 7443],
-    "rxpq":  [8443, 2443, 3443, 5443, 6443],
-    "rgpq":  [4443, 5443, 7443, 9444],
-}
-UDP_ONLY = set(); BOTH = set(); CDN_KEYS = {"tch", "tcht"}
-MODE = A.ports or ("auto" if not INTERACTIVE else "ask")
-
-def busy(pt, key): return owner_tcp.get(pt)
-def claim(pt, key): owner_tcp[pt] = "new config"
-def free_from(lst, key):
-    for pt in lst:
-        if not busy(pt, key): return pt
-    for pt in range(20000, 60000, 7):
-        if not busy(pt, key) and not (key in CDN_KEYS): return pt
-    return None
-
-head("4/4  Ports")
-PLAN = {}
-for key, name, _, _ in SEL:
-    want = PREF[key][0]; who = busy(want, key)
-    if not who:
-        PLAN[key] = {"port": want, "client_port": 0}; claim(want, key)
-        print(f"  {name:52s} port {want}"); continue
-    alt = free_from(PREF[key], key)
-    cdn_note = key in CDN_KEYS and (alt is None or alt not in CF_HTTPS)
-    print(f"  {Y}{name:52s} port {want} used by {who}{N}")
-    if key in CDN_KEYS and alt in CF_HTTPS: hint = f"Enter = {alt} (CF port)"
-    elif key in CDN_KEYS: hint = "all CF busy: o = Origin-Rule, s = skip"
-    else: hint = f"Enter = {alt}"
-    if MODE == "auto":
-        choice = "" if alt and not cdn_note else "s"
-    else:
-        print(f"    {D}  Enter = next free, <num> = custom, o = Origin-Rule, s = skip{N}")
-        choice = ask(f"    {hint}", "")
-    choice = choice.strip().lower()
-    if choice == "s" or (choice == "" and (alt is None or cdn_note)):
-        print(f"    → skipped"); continue
-    if choice == "o" and key in CDN_KEYS:
-        pt = free_from(range(30000, 60000, 11), "x")
-        PLAN[key] = {"port": pt, "client_port": 443, "origin_rule": True}; claim(pt, key)
-        print(f"    → Origin-Rule {pt} → client 443"); continue
-    if choice.isdigit():
-        pt = int(choice)
-        if busy(pt, key): warn(f"    {pt} busy — skipped"); continue
-        if key in CDN_KEYS and pt not in CF_HTTPS:
-            PLAN[key] = {"port": pt, "client_port": 443, "origin_rule": True}
-        else: PLAN[key] = {"port": pt, "client_port": 0}
-        claim(pt, key); print(f"    → port {pt}"); continue
-    PLAN[key] = {"port": alt, "client_port": 0}; claim(alt, key)
-    print(f"    → port {alt}")
-if not PLAN: die("Nothing to add.")
-
-CLEAN = []
-if CLEAN_N and CDN:
-    if os.path.exists("clean-ips.txt") and os.path.getsize("clean-ips.txt") > 0:
-        lst = open("clean-ips.txt", "r", encoding="utf-8").read()
-        info("using local clean-ips.txt")
-    else:
-        lst = sh(f"curl -fsSL -m10 {REPO_RAW}/clean-ips.txt") if REPO_RAW else ""
-    cand = [l.split("#")[0].strip() for l in lst.splitlines() if l.split("#")[0].strip()]
-    if not cand: cand = __FALLBACK_CLEAN__
-    cdn_port = next((PLAN[k]["port"] for k in CDN_KEYS
-                     if k in PLAN and not PLAN[k].get("origin_rule")), None)
-    if not cdn_port and any(PLAN.get(k, {}).get("origin_rule") for k in CDN_KEYS):
-        cdn_port = 443
-    if cdn_port:
-        def via_cf(a):
-            ip = a if re.match(r"^[\d.]+$", a) else (next((x for x in ips_of(a) if ":" not in x), "") or "")
-            if not ip or not is_cf(ip): return None
-            r = sh(f"curl -s -o /dev/null -m6 -w '%{{http_code}} %{{time_connect}}' --resolve {CDN}:{cdn_port}:{ip} "
-                   f"https://{CDN}:{cdn_port}/", 10)
-            code, _, t = r.partition(" ")
-            return (a, float(t or 9)) if code and code != "000" else None
-        info(f"checking {len(cand)} against {CDN} ...")
-        with cfut.ThreadPoolExecutor(16) as ex:
-            res = [r for r in ex.map(via_cf, cand) if r]
-        CLEAN = [a for a, _ in res][:CLEAN_N]
-        info(f"{len(CLEAN)} clean ready")
-
-head("Plan")
-print(f"  panel {PANEL.name} · address {ADDR}" + (f" · IPv6 {PUB6}" if PUB6 else "") + (f" · CDN {CDN}" if CDN else ""))
-for key, name, _, _ in SEL:
-    if key in PLAN:
-        pl = PLAN[key]
-        print(f"  {G}+{N} {name:52s} port {pl['port']}"
-              + (f"  (Origin Rule)" if pl.get("origin_rule") else ""))
-if CLEAN: print(f"  {G}+{N} {len(CLEAN)} clean-IP configs")
-print(f"  {D}existing inbounds untouched: {len(inbs)}{N}")
-if A.dry_run: info("Dry run."); sys.exit(0)
-if not yes("Start?", True): sys.exit(0)
-
-# =========================================================================== builders
-hx = secrets.token_hex
-def x25519():
-    if not XRAY: raise RuntimeError("xray binary not found — install/update Xray 26+ first")
-    d = {}
-    for l in sh(f"'{XRAY}' x25519").splitlines():
-        k, _, v = l.partition(":"); d[k.strip()] = v.strip()
-    priv = d.get("PrivateKey") or d.get("Private key")
-    pub  = d.get("Password (PublicKey)") or d.get("Password") or d.get("PublicKey") or d.get("Public key")
-    if not priv or not pub: raise RuntimeError("xray x25519 returned empty — update Xray-core to 26+")
-    return priv, pub
-def vlessenc():
-    if not XRAY: raise RuntimeError("xray binary not found — install/update Xray 26+ first")
-    out = sh(f"'{XRAY}' vlessenc").splitlines()
-    for n, l in enumerate(out):
-        if "X25519" in l and n + 2 < len(out):
-            return out[n+1].split('"')[3], out[n+2].split('"')[3]
-    raise RuntimeError("this Xray has no 'vlessenc' (update Xray-core to 26)")
-def reality(network, target, extra):
-    priv, pub = x25519()
-    s = {"network": network, "security": "reality", "externalProxy": [],
-         "realitySettings": {"show": False, "xver": 0, "target": f"{target}:443", "serverNames": [target],
-                             "privateKey": priv, "minClientVer": "", "maxClientVer": "", "maxTimediff": 0,
-                             "shortIds": [hx(4), hx(8)],
-                             "settings": {"publicKey": pub, "fingerprint": "chrome", "serverName": "", "spiderX": "/"}}}
-    s.update(extra); return s
-def tls(alpn):
-    return {"serverName": DOMAIN, "minVersion": "1.2", "maxVersion": "1.3", "cipherSuites": "",
-            "rejectUnknownSni": False, "disableSystemRoot": False, "enableSessionResumption": False,
-            "certificates": [{"certificateFile": CERT, "keyFile": KEY, "oneTimeLoading": False,
-                              "usage": "encipherment", "buildChain": False}],
-            "alpn": alpn, "settings": {"fingerprint": "chrome", "echConfigList": ""}}
-def tls_stream(network, extra, alpn):
-    s = {"network": network, "security": "tls", "externalProxy": [], "tlsSettings": tls(alpn)}; s.update(extra); return s
-TCP = {"tcpSettings": {"acceptProxyProtocol": False, "header": {"type": "none"}}}
-XH = lambda: {"path": "/" + hx(5), "host": "", "mode": "auto", "xPaddingBytes": "100-1000",
-              "noSSEHeader": False, "scMaxEachPostBytes": "1000000", "scMaxBufferedPosts": 30}
-FRAG = json.dumps({"tcp":[{"type":"fragment","settings":{"packets":"tlshello","lengths":["10-30"],"delays":["5-15"]}}]})
-SNIFF = {"enabled": True, "destOverride": ["http","tls","quic"], "metadataOnly": False, "routeOnly": True}
-PATHS = {}
-
-def _finalmask_sudoku():
-    return {"tcp":[{"type":"sudoku","settings":{"password":hx(16),"ascii":"prefer_entropy",
-                                                 "paddingMin":2,"paddingMax":7}}]}
-def pq(stream):
-    s = dict(stream); s["finalmask"] = _finalmask_sudoku(); return s
-
-def tch_stream():
-    PATHS["tch"] = "/" + hx(5)
-    return {"network": "httpupgrade", "security": "none", "externalProxy": [],
-            "httpupgradeSettings": {"acceptProxyProtocol": False,
-                                    "path": PATHS["tch"], "host": "", "headers": {}}}
-def tcht_stream():
-    PATHS["tcht"] = "/" + hx(5)
-    return tls_stream("httpupgrade", {"httpupgradeSettings": {"acceptProxyProtocol": False,
-                                                              "path": PATHS["tcht"], "host": "", "headers": {}}},
-                      ["http/1.1"])
-def tws_stream():
-    PATHS["tws"] = "/" + hx(5)
-    return {"network": "ws", "security": "none", "externalProxy": [],
-            "wsSettings": {"acceptProxyProtocol": False, "path": PATHS["tws"],
-                           "host": "", "headers": {}, "heartbeatPeriod": 30}}
-def twsp_stream():
-    PATHS["twsp"] = "/" + hx(5)
-    base = {"network": "ws", "security": "none", "externalProxy": [],
-            "wsSettings": {"acceptProxyProtocol": False, "path": PATHS["twsp"],
-                           "host": "", "headers": {}, "heartbeatPeriod": 30}}
-    return pq(base)
-def twst_stream():
-    PATHS["twst"] = "/" + hx(5)
-    return tls_stream("ws", {"wsSettings": {"acceptProxyProtocol": False, "path": PATHS["twst"],
-                                            "host": "", "headers": {}, "heartbeatPeriod": 30}},
-                      ["http/1.1"])
-def twstp_stream():
-    PATHS["twstp"] = "/" + hx(5)
-    base = tls_stream("ws", {"wsSettings": {"acceptProxyProtocol": False, "path": PATHS["twstp"],
-                                            "host": "", "headers": {}, "heartbeatPeriod": 30}},
-                      ["http/1.1"])
-    return pq(base)
-def thu_stream():
-    PATHS["thu"] = "/" + hx(5)
-    return {"network": "httpupgrade", "security": "none", "externalProxy": [],
-            "httpupgradeSettings": {"acceptProxyProtocol": False,
-                                    "path": PATHS["thu"], "host": "", "headers": {}}}
-
-BUILD = {
-    "tch":   ("trojan", lambda: ({"clients": []}, tch_stream())),
-    "tcht":  ("trojan", lambda: ({"clients": []}, tcht_stream())),
-    "tws":   ("trojan", lambda: ({"clients": []}, tws_stream())),
-    "twsp":  ("trojan", lambda: ({"clients": []}, twsp_stream())),
-    "twst":  ("trojan", lambda: ({"clients": []}, twst_stream())),
-    "twstp": ("trojan", lambda: ({"clients": []}, twstp_stream())),
-    "thu":   ("trojan", lambda: ({"clients": []}, thu_stream())),
-    "trhv":  ("trojan", lambda: ({"clients": []}, reality("httpupgrade", sni(6),
-                                                          {"httpupgradeSettings": {"acceptProxyProtocol": False,
-                                                                                   "path": "/" + hx(5),
-                                                                                   "host": "", "headers": {}}}))),
-    "trxp":  ("trojan", lambda: ({"clients": []}, reality("xhttp", sni(7), {"xhttpSettings": XH()}))),
-    "trgp":  ("trojan", lambda: ({"clients": []}, reality("grpc", sni(8),
-                                                          {"grpcSettings": {"serviceName": hx(4),
-                                                                            "authority": "",
-                                                                            "multiMode": True}}))),
-    "rvpq":  ("vless", lambda: ({"clients": [], "decryption": "none", "fallbacks": []},
-                                pq(reality("tcp", sni(3), TCP)))),
-    "rxpq":  ("vless", lambda: ({"clients": [], "decryption": "none", "fallbacks": []},
-                                pq(reality("xhttp", sni(4), {"xhttpSettings": XH()})))),
-    "rgpq":  ("vless", lambda: ({"clients": [], "decryption": "none", "fallbacks": []},
-                                pq(reality("grpc", sni(5), {"grpcSettings": {"serviceName": hx(4),
-                                                                              "authority": "",
-                                                                              "multiMode": True}})))),
-}
-REMARK = {
-    "tch":   f"{BRAND}👾Trojan • HU • CDN",
-    "tcht":  f"{BRAND}👾Trojan • HU • CDN • TLS",
-    "tws":   f"{BRAND}👾Trojan • WS",
-    "twsp":  f"{BRAND}🧬Trojan • WS • PQ",
-    "twst":  f"{BRAND}👾Trojan • WS • TLS",
-    "twstp": f"{BRAND}🧬Trojan • WS • TLS • PQ",
-    "thu":   f"{BRAND}👾Trojan • HU • Plain",
-    "trhv":  f"{BRAND}👾Trojan • REALITY • HU",
-    "trxp":  f"{BRAND}👾Trojan • REALITY • XH",
-    "trgp":  f"{BRAND}👾Trojan • REALITY • gRPC",
-    "rvpq":  f"{BRAND}🧬Reality • Vision • PQ",
-    "rxpq":  f"{BRAND}🧬Reality • XHTTP • PQ",
-    "rgpq":  f"{BRAND}🧬Reality • gRPC • PQ",
-}
-def cdn_host(name, addr, key):
-    cp = PLAN[key].get("client_port", 0)
-    return (name, addr, {"sni": CDN, "hostHeader": CDN, "finalMask": FRAG, **({"port": cp} if cp else {})})
-def HOSTS(key):
-    v6 = lambda n, ex={}: [(f"{BRAND}6️⃣{n} • IPv6", PUB6, ex)] if PUB6 else []
-    if key == "tch":
-        return [cdn_host(f"{BRAND}☁️CDN • HU", CDN, "tch")]
-    if key == "tcht":
-        h = [] if PLAN["tcht"].get("origin_rule") else [(f"{BRAND}👾Trojan • HU • TLS", ADDR,
-                                                         {"sni": DOMAIN, "hostHeader": DOMAIN})]
-        return h + ([cdn_host(f"{BRAND}☁️CDN • HU • TLS", CDN, "tcht")] if CDN else [])
-    if key == "tws":   return [(f"{BRAND}👾Trojan • WS", ADDR, {})] + v6("Trojan • WS")
-    if key == "twsp":  return [(f"{BRAND}🧬Trojan • WS • PQ", ADDR, {})] + v6("Trojan • WS • PQ")
-    if key == "twst":  return [(f"{BRAND}👾Trojan • WS • TLS", ADDR, {"sni": DOMAIN})] + v6("Trojan • WS • TLS", {"sni": DOMAIN})
-    if key == "twstp": return [(f"{BRAND}🧬Trojan • WS • TLS • PQ", ADDR, {"sni": DOMAIN})] + v6("Trojan • WS • TLS • PQ", {"sni": DOMAIN})
-    if key == "thu":   return [(f"{BRAND}👾Trojan • HU • Plain", ADDR, {})] + v6("Trojan • HU • Plain")
-    if key == "trhv":  return [(f"{BRAND}👾Trojan • REALITY • HU", ADDR, {})] + v6("Trojan • REALITY • HU")
-    if key == "trxp":  return [(f"{BRAND}👾Trojan • REALITY • XH", ADDR, {})] + v6("Trojan • REALITY • XH")
-    if key == "trgp":  return [(f"{BRAND}👾Trojan • REALITY • gRPC", ADDR, {})] + v6("Trojan • REALITY • gRPC")
-    if key == "rvpq":  return [(f"{BRAND}🧬Reality • Vision • PQ", ADDR, {})] + v6("Reality • Vision • PQ")
-    if key == "rxpq":  return [(f"{BRAND}🧬Reality • XHTTP • PQ", ADDR, {})] + v6("Reality • XHTTP • PQ")
-    if key == "rgpq":  return [(f"{BRAND}🧬Reality • gRPC • PQ", ADDR, {})] + v6("Reality • gRPC • PQ")
+def fetch_server_models(base_url, api_key):
+    h = {"Authorization": f"Bearer {api_key}"}
+    if PROVIDER == "openrouter":
+        h["HTTP-Referer"] = "https://github.com/AyhanMansur/AyhanX-Agent"
+        h["X-Title"] = "AyhanX-Agent"
+    try:
+        r = httpx.get(f"{base_url.rstrip('/')}/models", headers=h, timeout=6)
+        if r.status_code == 200: return [m["id"] for m in r.json().get("data", [])]
+    except Exception: pass
     return []
 
-# =========================================================================== apply
-head("Adding")
-bak = PANEL.db_backup()
-if bak: info("backup:", bak)
-try: emails = {c.get("email") or c.get("username") for c in (PANEL.clients_list() or [])}
-except Exception: emails = set()
-EMAIL = A.email or f"pro_{hx(2)}"
-while EMAIL in emails: EMAIL = f"{EMAIL}_{hx(1)}"
-SUBID = "".join(secrets.choice(string.ascii_lowercase + string.digits) for _ in range(16))
-PASSWORD = base64.b64encode(secrets.token_bytes(32)).decode()
+def refresh_local_models(cfg):
+    if not IS_LOCAL: return []
+    base = os.environ.get("DEEPSEEK_BASE_URL", "")
+    key = os.environ.get("DEEPSEEK_API_KEY", "local")
+    ids = fetch_server_models(base, key)
+    if ids:
+        for m in ids:
+            if m not in cfg.custom_models and m not in MODELS: cfg.custom_models.append(m)
+        cfg.save()
+        if cfg.model not in ids: cfg.model = ids[0]; cfg.save()
+    return ids
 
-def xray_ok(pt):
-    for _ in range(10):
-        time.sleep(1.5)
-        if f":{pt}" in sh(f"ss -H -tlnp 'sport = :{pt}'"):
-            return True
-    return False
+VIOLET = "#40e0d0"; VIOLET_DEEP = "#0f9d9a"; CYAN = "#5eead4"
+GOLD = "#fbbf24"; MINT = "#34d399"; RED = "#f87171"
+MUTED = "#64748b"; SOFT = "#94a3b8"; TEXT = "#e2e8f0"
+console = Console(highlight=False)
 
-added, made_client = [], False
-for key, name, _, _ in SEL:
-    if key not in PLAN: continue
-    pt = PLAN[key]["port"]; proto, build = BUILD[key]
-    try: st, stream = build()
-    except Exception as e: warn(f"{name}: {e} — skipped"); continue
-    iid = PANEL.add_inbound(REMARK[key], pt, proto, st, stream, SNIFF)
-    if not iid:
-        warn(f"{name}: panel refused — skipped"); continue
-    if not made_client:
-        made_client = PANEL.add_client(EMAIL, SUBID, PASSWORD, [iid])
-        if not made_client:
-            PANEL.del_inbound(iid); die("could not create client")
-    else:
-        PANEL.attach_client(EMAIL, [iid])
-    PANEL.restart()
-    if xray_ok(pt):
-        added.append((key, iid)); info(f"added {name:52s} port {pt}")
-    else:
-        warn(f"{name}: engine rejected — removed")
-        PANEL.detach_client(EMAIL, [iid]); PANEL.del_inbound(iid); PANEL.restart(); time.sleep(3)
-if not added: die("Nothing could be added.")
-ADDED = dict(added)
-
-use_hosts = False
-if PANEL.name == "3x-ui":
-    s = PANEL._http("/panel/api/setting/all", method="POST").get("obj") or {}
-    tmpl = s.get("remarkTemplate", "")
-    use_hosts = "{{HOST}}" in tmpl or not inbs
-    if not use_hosts:
-        warn(f"remarkTemplate = '{tmpl}'")
-        use_hosts = yes("Set remarkTemplate to {{HOST}}?", True)
-    if use_hosts and "{{HOST}}" not in tmpl:
-        PANEL.set_remark_template("{{HOST}}")
-else:
-    use_hosts = True
-
-clean_key = next((k for k in CDN_KEYS if k in ADDED and not PLAN[k].get("origin_rule")), None) \
-            or next((k for k in CDN_KEYS if k in ADDED), None)
-n_links = 0
-for order, (key, iid) in enumerate(added):
-    hosts = HOSTS(key)
-    if key == clean_key and CLEAN:
-        hosts += [cdn_host(f"{BRAND}🧊Clean • {i:02d}", a, key) for i, a in enumerate(CLEAN, 1)]
-    if not use_hosts:
-        hosts = [h for h in hosts if h[1] == CDN or h[1] in CLEAN] if key in CDN_KEYS else []
-    for i, (rem, addr, extra) in enumerate(hosts):
-        if not addr: continue
-        r = PANEL.add_host(iid, rem, addr, extra, i)
-        n_links += bool(r)
-        if not r: warn(f"host {rem}: rejected")
-
-ufw = sh("ufw status 2>/dev/null | head -1")
-if "Status: active" in ufw:
-    for key, _ in added:
-        pt = PLAN[key]["port"]; sh(f"ufw allow {pt}/tcp")
-    info("ufw: ports opened")
-
-if not A.no_bbr and "bbr" not in sh("sysctl -n net.ipv4.tcp_congestion_control"):
-    if yes("Enable BBR?", True):
-        open("/etc/sysctl.d/99-bbr.conf","w").write(
-            "net.core.default_qdisc=fq\nnet.ipv4.tcp_congestion_control=bbr\n")
-        sh("modprobe tcp_bbr; sysctl --system")
-        info("BBR:", sh("sysctl -n net.ipv4.tcp_congestion_control"))
-
-info("restarting engine ...")
-PANEL.restart(); time.sleep(4)
-
-SUB, JSUB = PANEL.sub_urls(EMAIL if PANEL.name in ("Marzban", "Pasarguard") else SUBID)
-if not SUB:
-    warn("subscription URL unavailable"); SUB = JSUB = "(n/a)"
-
-# =========================================================================== test
-passed = total = 0
-if not A.no_test and XRAY and PANEL.name == "3x-ui" and JSUB and JSUB != "(n/a)":
-    head("E2E test")
-    try:
-        jhost = urllib.parse.urlparse(JSUB).hostname or "127.0.0.1"
-        jport = urllib.parse.urlparse(JSUB).port or 80
-        sres = ["--resolve", f"{jhost}:{jport}:127.0.0.1"] if re.search(r"[a-z]", jhost) else []
-        subs = json.loads(subprocess.run(["curl","-sk","-m","20"] + sres + [JSUB],
-                                         capture_output=True, text=True).stdout)
-        subs = subs if isinstance(subs, list) else [subs]
-    except Exception: subs = []; warn("couldn't read JSON subscription")
-    ins, outs, rules, meta = [], [], [], []
-    for n, cfg in enumerate(subs):
-        o = next((x for x in cfg.get("outbounds", []) if x.get("tag") == "proxy"), None)
-        if not o: continue
-        s = o.get("settings", {})
-        via_cdn = (o.get("streamSettings", {}).get("tlsSettings") or {}).get("serverName") == CDN and CDN
-        def fix(a): return a if via_cdn else ("::1" if PUB6 and a == PUB6 else "127.0.0.1")
-        for k in ("vnext","servers"):
-            for srv in s.get(k, []) or []: srv["address"] = fix(srv.get("address"))
-        if "address" in s: s["address"] = fix(s["address"])
-        o["tag"] = f"p{n}"; outs.append(o)
-        ins.append({"tag":f"s{n}","listen":"127.0.0.1","port":23000+n,"protocol":"socks","settings":{"udp":True}})
-        rules.append({"type":"field","inboundTag":[f"s{n}"],"outboundTag":f"p{n}"})
-        meta.append((cfg.get("remarks", f"#{n}"), 23000+n))
-    if outs:
-        json.dump({"log":{"loglevel":"none"},"inbounds":ins,
-                   "outbounds":outs + [{"protocol":"freedom","tag":"d"}],
-                   "routing":{"rules":rules}}, open("/tmp/.xui-pro-e2e.json","w"))
-        pr = subprocess.Popen([XRAY,"run","-c","/tmp/.xui-pro-e2e.json"],
-                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        time.sleep(3)
-        def probe(m):
-            name, pt = m
-            for _ in range(2):
-                if sh(f"curl -s -o /dev/null -m 15 -w '%{{http_code}}' --socks5-hostname 127.0.0.1:{pt} "
-                      "https://www.google.com/generate_204", 20) == "204":
-                    return name, True
-            return name, False
-        try:
-            with cfut.ThreadPoolExecutor(6) as ex:
-                for name, ok in ex.map(probe, meta):
-                    total += 1; passed += ok
-                    print(f"  {G+'OK  '+N if ok else R+'FAIL'+N} {name}")
-        finally:
-            pr.terminate()
-            try: os.remove("/tmp/.xui-pro-e2e.json")
+@dataclass
+class Config:
+    model: str = "deepseek-chat"
+    system_prompt: str = ""
+    agent_mode: bool = False
+    max_context_messages: int = 40
+    custom_models: list = field(default_factory=list)
+    @classmethod
+    def load(cls):
+        if CONFIG_PATH.exists():
+            try:
+                d = json.loads(CONFIG_PATH.read_text())
+                return cls(**{k: v for k, v in d.items() if k in cls.__annotations__})
             except Exception: pass
-        info(f"{passed}/{total} work")
-elif not A.no_test:
-    head("Bind check")
-    okc = 0
-    for key, _ in added:
-        pt = PLAN[key]["port"]
-        live = f":{pt}" in sh(f"ss -H -tlnp 'sport = :{pt}'")
-        print(f"  {G+'OK  '+N if live else R+'FAIL'+N} {REMARK[key]} port {pt}")
-        okc += live
-    info(f"{okc}/{len(added)} ports listening (e2e skipped on {PANEL.name})")
+        return cls()
+    def save(self):
+        CONFIG_PATH.write_text(json.dumps(self.__dict__, indent=2))
+        try: os.chmod(CONFIG_PATH, 0o600)
+        except Exception: pass
 
-# =========================================================================== done
-head("Done")
-print(f"  panel        {PANEL.name}  ({len(added)} inbounds, {n_links} links, {len(inbs)} existing untouched)")
-print(f"  client       {B}{EMAIL}{N}")
-if SUB and SUB != "(n/a)": print(f"  subscription {B}{SUB}{N}")
-if JSUB and JSUB != "(n/a)": print(f"  JSON sub     {B}{JSUB}{N}")
-ports_txt = ", ".join(f"{PLAN[k]['port']}/tcp" for k, _ in added)
-print(f"\n  Open in cloud firewall: {ports_txt}")
-if CDN:
-    print(f"  Cloudflare: {CDN} = proxied · {DOMAIN} = DNS-only · SSL/TLS = Full")
-rules_needed = [(k, PLAN[k]["port"]) for k, _ in added if PLAN[k].get("origin_rule")]
-if rules_needed:
-    print(f"\n  {Y}Cloudflare Origin Rules needed{N}:")
-    for k, pt in rules_needed:
-        print(f"    Hostname = {CDN} AND Path starts with {PATHS.get(k,'/')}  →  port {pt}")
-if bak: print(f"\n  backup: {bak}")
-print(f"  repo:   {USER_REPO}\n")
+@dataclass
+class Conversation:
+    messages: list = field(default_factory=list)
+    created: str = field(default_factory=lambda: datetime.now().isoformat())
+    def add_user(self, t): self.messages.append({"role": "user", "content": t})
+    def add_assistant(self, t): self.messages.append({"role": "assistant", "content": t})
+    def trim(self, n):
+        s = [m for m in self.messages if m["role"] == "system"]
+        d = [m for m in self.messages if m["role"] != "system"]
+        if len(d) > n: d = d[-n:]
+        self.messages = s + d
+    def save(self, name):
+        p = CHATS_DIR / f"{name}.json"; p.write_text(json.dumps(self.messages, indent=2)); return p
+    @classmethod
+    def load(cls, name):
+        p = CHATS_DIR / f"{name}.json"
+        if not p.exists(): raise FileNotFoundError(f"no chat named '{name}'")
+        c = cls(); c.messages = json.loads(p.read_text()); return c
+    def to_api(self): return [m for m in self.messages if m.get("content", "").strip()]
 
-if not A.no_scan and not A.install and not A.dry_run and MODE_CHOICE != "install":
-    if not INTERACTIVE:
-        if yes("Also run scanner?", False): run_scanner()
-    else:
-        print(f"\n{B}{C}── Bonus: Proxy Scanner ──{N}")
-        if yes("Run scanner now?", False): run_scanner()
+class DeepSeekClient:
+    def __init__(self, key, base, model, provider="deepseek"):
+        self.api_key = key; self.base_url = base.rstrip("/")
+        self.model = model; self.provider = provider
+    def _headers(self):
+        h = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        if self.provider == "openrouter":
+            h["HTTP-Referer"] = "https://github.com/AyhanMansur/AyhanX-Agent"
+            h["X-Title"] = "AyhanX-Agent"
+        return h
+    def _hint(self, s):
+        b = {401: "invalid key", 402: "no balance", 404: "model not found — try /model",
+             429: "rate limited"}.get(s, "")
+        if not b: return ""
+        if self.provider == "openrouter": return b + " — openrouter.ai/keys"
+        if self.provider == "google": return b + " — aistudio.google.com/apikey"
+        if self.provider in LOCAL_PROVIDERS: return b + " — is the server running?"
+        return b + " — platform.deepseek.com/api_keys"
+    def _error(self, s, body):
+        msg = body
+        try: msg = json.loads(body).get("error", {}).get("message", body)
+        except Exception: pass
+        h = self._hint(s)
+        return f"HTTP {s}: {msg}" + (f"\n→ {h}" if h else "")
+    def chat(self, messages, tools=None, stream=True):
+        p = {"model": self.model, "messages": messages, "stream": stream}
+        if tools: p["tools"] = tools; p["tool_choice"] = "auto"
+        c = httpx.Client(timeout=180)
+        return self._stream(c, p) if stream else self._nonstream(c, p)
+    def _stream(self, client, payload):
+        def gen():
+            try:
+                with client.stream("POST", f"{self.base_url}/chat/completions",
+                                   headers=self._headers(), json=payload) as r:
+                    if r.status_code >= 400:
+                        yield {"error": self._error(r.status_code, r.read().decode(errors="replace"))}; return
+                    for line in r.iter_lines():
+                        if not line.startswith("data:"): continue
+                        d = line[5:].strip()
+                        if d == "[DONE]": break
+                        try: o = json.loads(d)
+                        except json.JSONDecodeError: continue
+                        delta = o.get("choices", [{}])[0].get("delta", {})
+                        if c := delta.get("content"): yield {"text": c}
+            finally: client.close()
+        return gen()
+    def _nonstream(self, client, payload):
+        try:
+            r = client.post(f"{self.base_url}/chat/completions", headers=self._headers(), json=payload)
+            if r.status_code >= 400: return {"error": self._error(r.status_code, r.text)}
+            return r.json()
+        finally: client.close()
+
+def _rgb(h): return tuple(int(h[i:i+2], 16) for i in (1, 3, 5))
+
+def gradient(text, s=VIOLET_DEEP, e=CYAN):
+    a, b = _rgb(s), _rgb(e); out = Text(); n = max(len(text)-1, 1)
+    for i, ch in enumerate(text):
+        k = i/n; c = "#" + "".join(f"{round(a[j]+(b[j]-a[j])*k):02x}" for j in range(3))
+        out.append(ch, style=f"bold {c}")
+    return out
+
+def model_chip(n): return Text(f" {n} ", style=f"bold #0f0a1f on {VIOLET}")
+def mode_chip(a): return Text(" AGENT ", style=f"bold #1c1600 on {GOLD}") if a else Text(" CHAT ", style=f"bold #04221a on {MINT}")
+def provider_chip():
+    l = f" {PROVIDER_LABEL} "
+    return Text(l, style="bold #1c1600 on #fbbf24") if IS_LOCAL else Text(l, style=f"bold #0a0f1c on {CYAN}")
+
+def show_header(cfg):
+    left = Text.assemble(("◆ ", VIOLET), gradient("AyhanX-Agent"), ("   ", ""), (f"v{VERSION}", MUTED))
+    right = Text.assemble(provider_chip(), ("  ", ""), model_chip(cfg.model), ("  ", ""), mode_chip(cfg.agent_mode))
+    g = Table.grid(expand=True); g.add_column(ratio=1); g.add_column(justify="right"); g.add_row(left, right)
+    console.print(Panel(g, box=box.ROUNDED, border_style=VIOLET_DEEP, padding=(0, 2)))
+    console.print(Text("  type a message · /help · /provider · Ctrl+D exit", style=MUTED))
+    console.print()
+
+def notice(m, c=MINT): console.print(Text(f"  {m}", style=c))
+def error_panel(m): return Panel(Text(m, style=RED), title=Text("error", style=f"bold {RED}"),
+                                   title_align="left", box=box.ROUNDED, border_style=RED, padding=(0, 2))
+def assistant_panel(t, thinking=False):
+    title = Text.assemble(("◆ ", VIOLET), (PROVIDER_LABEL, f"bold {VIOLET}"),
+                          ("  thinking…" if thinking else "", MUTED))
+    return Panel(Markdown(t or ""), title=title, title_align="left", box=box.ROUNDED,
+                 border_style=VIOLET_DEEP, padding=(0, 2))
+def print_user(t):
+    console.print()
+    console.print(Text.assemble((" you ", f"bold #0f0a1f on {CYAN}"), ("  ", ""), (t, TEXT)))
+    console.print()
+def tool_card(n, a, r):
+    ag = json.dumps(a, ensure_ascii=False)[:90]; pv = r[:140].replace("\n", " ")
+    if len(r) > 140: pv += "…"
+    console.print(Text.assemble(("  ⚙ ", GOLD), (n, f"bold {GOLD}"), ("  ", ""), (ag, MUTED)))
+    console.print(Text.assemble(("    └ ", "#334155"), (pv, SOFT)))
+
+def help_panel():
+    rows = [("/new","new"),("/clear","clear"),("/model [name]","models"),
+            ("/model refresh","refresh local"),("/model add <n>","add model"),
+            ("/provider [name]","list/switch provider"),("/provider add <n>","add provider"),
+            ("/provider remove <n>","remove provider"),("/system [text]","set system prompt"),
+            ("/agent","toggle agent (full terminal access)"),
+            ("/save [n]","save"),("/load <n>","load"),("/chats","list saved"),
+            ("/history","print"),("/info","config"),("/exit","quit")]
+    t = Table.grid(padding=(0, 3)); t.add_column(style=f"bold {CYAN}", no_wrap=True); t.add_column(style=SOFT)
+    for c, d in rows: t.add_row(c, d)
+    keys = Text.assemble(("Enter", f"bold {TEXT}"),(" send   ", MUTED),
+                         ("Esc+Enter", f"bold {TEXT}"),(" newline   ", MUTED),
+                         ("↑ ↓", f"bold {TEXT}"),(" history   ", MUTED),
+                         ("Ctrl+C", f"bold {TEXT}"),(" cancel", MUTED))
+    console.print(Panel(Group(t, Text(""), keys), title=Text("commands", style=f"bold {VIOLET}"),
+                        title_align="left", box=box.ROUNDED, border_style=VIOLET_DEEP, padding=(1, 2)))
+
+def info_panel(cfg, conv):
+    t = Table.grid(padding=(0, 3)); t.add_column(style=f"bold {VIOLET}", no_wrap=True); t.add_column(style=TEXT)
+    t.add_row("provider", PROVIDER_LABEL)
+    t.add_row("endpoint", os.environ.get("DEEPSEEK_BASE_URL", "?"))
+    t.add_row("model", cfg.model)
+    t.add_row("mode", "agent" if cfg.agent_mode else "chat")
+    t.add_row("system prompt", "set" if cfg.system_prompt else "none")
+    t.add_row("messages", str(len(conv.messages)))
+    t.add_row("config", str(CONFIG_PATH)); t.add_row("providers", str(PROVIDERS_FILE)); t.add_row("chats", str(CHATS_DIR))
+    console.print(Panel(t, title=Text("info", style=f"bold {VIOLET}"), title_align="left",
+                        box=box.ROUNDED, border_style=VIOLET_DEEP, padding=(1, 2)))
+
+def chats_table():
+    chats = sorted(CHATS_DIR.glob("*.json"))
+    if not chats: notice("no saved chats", MUTED); return
+    t = Table(box=box.SIMPLE_HEAD, header_style=f"bold {VIOLET}", border_style=MUTED, expand=False)
+    t.add_column("name", style=f"bold {CYAN}"); t.add_column("msgs", justify="right"); t.add_column("updated", style=SOFT)
+    for p in chats:
+        try: n = str(len(json.loads(p.read_text())))
+        except Exception: n = "?"
+        t.add_row(p.stem, n, datetime.fromtimestamp(p.stat().st_mtime).strftime("%Y-%m-%d %H:%M"))
+    console.print(t)
+
+def print_history(conv):
+    if not conv.messages: notice("nothing yet", MUTED); return
+    for m in conv.messages:
+        if m["role"] == "user": console.print(Text.assemble(("❯ ", f"bold {CYAN}"), (m["content"], TEXT)))
+        elif m["role"] == "assistant": console.print(Markdown(m["content"]))
+        console.print()
+
+KB = KeyBindings()
+@KB.add("enter")
+def _(e): e.current_buffer.validate_and_handle()
+@KB.add("escape", "enter")
+def _(e): e.current_buffer.insert_text("\n")
+@KB.add("c-j")
+def _(e): e.current_buffer.insert_text("\n")
+
+PROMPT_STYLE = Style.from_dict({"arrow": f"{VIOLET} bold", "bottom-toolbar": "bg:#0b0a14 #94a3b8",
+                                 "completion-menu": "bg:#14122a #e2e8f0",
+                                 "completion-menu.completion.current": f"bg:{VIOLET_DEEP} #ffffff"})
+
+def toolbar(cfg, conv):
+    mode = '<style fg="#fbbf24"><b>AGENT</b></style>' if cfg.agent_mode else '<style fg="#34d399"><b>CHAT</b></style>'
+    pf = "#fbbf24" if IS_LOCAL else "#5eead4"
+    return HTML(f' <style fg="{pf}"><b>{html.escape(PROVIDER_LABEL)}</b></style>'
+                f'  ·  <style fg="#a78bfa"><b>{html.escape(cfg.model)}</b></style>'
+                f'  ·  {mode}  ·  {len(conv.messages)} msgs'
+                f'    <style fg="#64748b">/help · /provider · Ctrl+D exit</style>')
+
+AGENT_SYSTEM = (
+    "You are AyhanX-Agent, a capable coding assistant with FULL access "
+    "to the user's filesystem via tools.\n\n"
+    "RULES:\n"
+    "1. When the user asks you to create/edit/run code or files, USE the "
+    "tools (write_file, edit_file, run_shell, run_python). Do NOT just "
+    "show code — actually write and run it.\n"
+    "2. When the user asks something that needs real data (time, files, "
+    "calculations), call the appropriate tool.\n"
+    "3. After creating a file, verify it works (run it if applicable).\n"
+    "4. Be concise in your final answer — show what you did.\n"
+    "5. Paths are relative to $HOME. Use relative paths.\n"
+    "6. NEVER use destructive commands (rm -rf /, mkfs, dd, etc.)"
+)
+
+def build_msgs(conv, cfg, agent=False):
+    m = conv.to_api()
+    if agent:
+        prefix = cfg.system_prompt or AGENT_SYSTEM
+        m = [{"role": "system", "content": prefix}] + m
+    elif cfg.system_prompt:
+        m = [{"role": "system", "content": cfg.system_prompt}] + m
+    return m
+
+def stream_response(client, conv, cfg):
+    buf = []
+    live = Live(Spinner("dots", text=Text(" thinking", style=MUTED), style=VIOLET),
+                console=console, refresh_per_second=12, transient=False)
+    live.start()
+    try:
+        for c in client.chat(build_msgs(conv, cfg, agent=False), stream=True):
+            if "error" in c: live.update(error_panel(c["error"])); live.stop(); return ""
+            if "text" in c:
+                buf.append(c["text"]); live.update(assistant_panel("".join(buf), thinking=True))
+    except httpx.RequestError as e: live.update(error_panel(f"network error: {e}")); live.stop(); return ""
+    except KeyboardInterrupt:
+        live.update(assistant_panel("".join(buf) + "\n\n*cancelled*")); live.stop(); return "".join(buf)
+    full = "".join(buf)
+    if not full: live.update(Text("  (empty response)", style=MUTED)); live.stop(); return ""
+    live.update(assistant_panel(full)); live.stop(); return full
+
+def run_agent(client, conv, cfg):
+    msgs = build_msgs(conv, cfg, agent=True)
+    for iteration in range(12):
+        with console.status(Text(f" thinking (step {iteration+1})", style=MUTED), spinner="dots", spinner_style=VIOLET):
+            try: resp = client.chat(msgs, tools=TOOL_SPECS, stream=False)
+            except httpx.RequestError as e: resp = {"error": f"network error: {e}"}
+        if isinstance(resp, dict) and "error" in resp:
+            console.print(error_panel(resp["error"])); return ""
+        msg = resp.get("choices", [{}])[0].get("message", {})
+        tcalls = msg.get("tool_calls") or []
+        if not tcalls:
+            content = msg.get("content") or ""
+            console.print(assistant_panel(content)); return content
+        if msg.get("content"): console.print(Text(msg["content"], style=TEXT))
+        msgs.append(msg)
+        for tc in tcalls:
+            fn = tc.get("function", {}); name = fn.get("name", "?")
+            try: a = json.loads(fn.get("arguments") or "{}")
+            except json.JSONDecodeError: a = {}
+            impl = TOOL_IMPLS.get(name)
+            if impl:
+                try: r = impl(a)
+                except Exception as e: r = f"Error: {type(e).__name__}: {e}"
+            else: r = f"Error: unknown tool '{name}'"
+            tool_card(name, a, r)
+            msgs.append({"role": "tool", "tool_call_id": tc.get("id", ""), "content": r})
+    console.print(error_panel("stopped after 12 steps")); return ""
+
+COMMANDS = ["/help","/new","/clear","/model","/provider","/system","/agent","/save","/load","/chats","/history","/info","/exit"]
+
+def main():
+    global IS_LOCAL, MODELS, PROVIDER_LABEL
+    key = os.environ.get("DEEPSEEK_API_KEY", "local" if IS_LOCAL else "")
+    if not key and not IS_LOCAL: console.print(error_panel("DEEPSEEK_API_KEY is not set")); return 1
+    base = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+    cfg = Config.load()
+    if os.environ.get("DEEPSEEK_MODEL"): cfg.model = os.environ["DEEPSEEK_MODEL"]
+    elif cfg.model not in MODELS and cfg.model not in cfg.custom_models:
+        cfg.model = MODELS[0] if MODELS else "local-model"
+    providers = load_providers()
+    if IS_LOCAL:
+        with console.status(Text(f" querying {PROVIDER_LABEL}…", style=MUTED), spinner="dots", spinner_style=VIOLET):
+            ids = refresh_local_models(cfg)
+        if not ids:
+            notice(f"could not reach {PROVIDER_LABEL} at {base}", RED)
+            notice("is it running? use /model refresh or /provider to switch", MUTED)
+        elif cfg.model not in ids: cfg.model = ids[0]; cfg.save()
+    conv = Conversation(); show_header(cfg)
+    if START == "resume" and (CHATS_DIR / "last.json").exists():
+        conv = Conversation.load("last"); notice(f"resumed · {len(conv.messages)} messages"); console.print()
+    session = PromptSession(key_bindings=KB, style=PROMPT_STYLE, history=FileHistory(str(HISTORY_PATH)),
+                            completer=WordCompleter(COMMANDS, ignore_case=True), complete_while_typing=True,
+                            bottom_toolbar=lambda: toolbar(cfg, conv))
+    while True:
+        try: raw = session.prompt(HTML("<arrow>❯ </arrow>"))
+        except KeyboardInterrupt: console.print(Text("  ^C", style=MUTED)); continue
+        except EOFError: save_last(conv); console.print(); notice("bye", MUTED); return 0
+        text = raw.strip()
+        if not text: continue
+        if text.startswith("/"):
+            parts = text.split(maxsplit=1); cmd = parts[0].lower()
+            args = parts[1].split() if len(parts) > 1 else []
+            if cmd in ("/exit", "/quit"): save_last(conv); notice("bye", MUTED); return 0
+            elif cmd == "/help": help_panel()
+            elif cmd == "/clear": console.clear(); show_header(cfg)
+            elif cmd == "/provider":
+                if not args:
+                    chips = Text.assemble(*[(" " + n + " " + ("◆" if n == PROVIDER else " ") + "  ",
+                        f"bold #0f0a1f on {VIOLET}" if n == PROVIDER else f"{SOFT}") for n in providers])
+                    console.print(Text("  providers  ", style=MUTED), chips)
+                elif args[0].lower() == "add":
+                    if len(args) < 2: notice("usage: /provider add <name>", RED); continue
+                    pname = args[1].lower(); defaults = PROVIDER_DEFAULTS.get(pname, {"url": "", "model": ""})
+                    url_in = console.input(f"  url [{defaults['url']}]: ").strip() or defaults["url"]
+                    key_in = "local" if pname in LOCAL_PROVIDERS else console.input("  key: ").strip()
+                    model_in = console.input(f"  model [{defaults['model']}]: ").strip() or defaults["model"]
+                    providers[pname] = {"key": key_in, "url": url_in, "model": model_in}
+                    save_providers(providers); notice(f"✔ {pname} added")
+                elif args[0].lower() == "remove":
+                    if len(args) < 2: notice("usage: /provider remove <name>", RED); continue
+                    if args[1] in providers: del providers[args[1]]; save_providers(providers); notice(f"✔ {args[1]} removed")
+                    else: notice(f"unknown: {args[1]}", RED)
+                elif args[0] in providers:
+                    if switch_provider(args[0], providers, cfg):
+                        notice(f"→ switched to {PROVIDER_LABEL}")
+                        console.print(f"  [dim]model[/]    {cfg.model}")
+                        console.print(f"  [dim]endpoint[/] {os.environ['DEEPSEEK_BASE_URL']}")
+                        if IS_LOCAL:
+                            with console.status(Text(f" querying {PROVIDER_LABEL}…", style=MUTED), spinner="dots", spinner_style=VIOLET):
+                                ids = refresh_local_models(cfg)
+                            if ids and cfg.model not in ids: cfg.model = ids[0]; cfg.save()
+                        console.print(); show_header(cfg)
+                    else: notice(f"switch failed: {args[0]}", RED)
+                else:
+                    notice(f"unknown provider: {args[0]}", RED)
+                    console.print("  [dim]available: " + ", ".join(providers) + "[/]")
+            elif cmd == "/model":
+                if args and args[0].lower() == "refresh":
+                    if not IS_LOCAL: notice("refresh only for local", RED); continue
+                    with console.status(Text(f" querying {PROVIDER_LABEL}…", style=MUTED), spinner="dots", spinner_style=VIOLET):
+                        ids = refresh_local_models(cfg)
+                    notice(f"refreshed · {len(ids)} models" if ids else "no models", MINT if ids else RED); continue
+                models = all_models(cfg)
+                if not args:
+                    if not models: notice("no models — try /model refresh", MUTED); continue
+                    chips = Text.assemble(*[(" " + m + " " + ("◆" if m == cfg.model else " ") + "  ",
+                        f"bold #0f0a1f on {VIOLET}" if m == cfg.model else f"{SOFT}") for m in models])
+                    console.print(Text("  models  ", style=MUTED), chips)
+                elif args[0].lower() == "add":
+                    if len(args) < 2: notice("usage: /model add <name>", RED)
+                    else:
+                        n = args[1]
+                        if n not in models: cfg.custom_models.append(n); cfg.save()
+                        notice(f"model added: {n}")
+                elif args[0] in models or IS_LOCAL:
+                    cfg.model = args[0]; cfg.save(); os.environ["DEEPSEEK_MODEL"] = args[0]; notice(f"model → {args[0]}")
+                else: notice(f"unknown model: {args[0]}", RED)
+            elif cmd == "/new": conv = Conversation(); notice("new conversation")
+            elif cmd == "/system":
+                t = " ".join(args).strip()
+                if not t:
+                    if cfg.system_prompt: console.print(Panel(Text(cfg.system_prompt, style=TEXT),
+                        title=Text("system prompt", style=f"bold {VIOLET}"), title_align="left",
+                        box=box.ROUNDED, border_style=VIOLET_DEEP, padding=(0, 2)))
+                    else: notice("no system prompt set", MUTED)
+                else: cfg.system_prompt = t; cfg.save(); notice("system prompt updated")
+            elif cmd == "/agent":
+                cfg.agent_mode = not cfg.agent_mode; cfg.save()
+                notice("agent mode " + ("on — full terminal access" if cfg.agent_mode else "off"),
+                       GOLD if cfg.agent_mode else MUTED)
+            elif cmd == "/save":
+                n = args[0] if args else datetime.now().strftime("chat-%Y%m%d-%H%M%S")
+                try: p = conv.save(n); notice(f"saved → {p}")
+                except Exception as e: notice(f"save failed: {e}", RED)
+            elif cmd == "/load":
+                if not args: notice("usage: /load <name>", RED)
+                else:
+                    try: conv = Conversation.load(args[0]); notice(f"loaded {len(conv.messages)} messages")
+                    except FileNotFoundError as e: notice(str(e), RED)
+            elif cmd == "/chats": chats_table()
+            elif cmd == "/history": print_history(conv)
+            elif cmd == "/info": info_panel(cfg, conv)
+            else: notice(f"unknown command: {cmd}", RED)
+            continue
+        print_user(text); conv.add_user(text); conv.trim(cfg.max_context_messages)
+        api_key = os.environ.get("DEEPSEEK_API_KEY", "local" if IS_LOCAL else "")
+        base_url = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+        client = DeepSeekClient(api_key, base_url, cfg.model, PROVIDER)
+        try:
+            if cfg.agent_mode: answer = run_agent(client, conv, cfg)
+            else: answer = stream_response(client, conv, cfg)
+        except KeyboardInterrupt: notice("cancelled", MUTED); conv.messages.pop(); continue
+        if answer: conv.add_assistant(answer)
+        else: conv.messages.pop()
+        console.print()
+
+if __name__ == "__main__":
+    sys.exit(main())
 PYEOF
+  touch "$RUNNER_DIR/__init__.py"
+}
 
-FALLBACK='time.is creativecommons.org www.digitalocean.com www.canva.com www.npmjs.com www.udemy.com cdnjs.com
-172.67.153.64 141.101.120.172 104.19.214.18 104.16.165.243 188.114.98.19 172.66.160.120 190.93.246.88 188.114.99.132
-104.17.24.19 104.21.114.162 104.24.68.75 188.114.97.156 162.159.140.108 141.101.121.20 104.21.63.243 188.114.97.251
-104.27.49.141 190.93.244.210 104.25.60.147 104.16.77.102 188.114.96.74 104.27.96.96 104.18.29.233 104.19.44.112'
-python3 - "$TMPPY" "$FALLBACK" <<'FIX'
-import sys
-p, fb = sys.argv[1], sys.argv[2]
-s = open(p).read().replace("__FALLBACK_CLEAN__", repr([x for x in fb.split() if x]))
-open(p, "w").write(s)
-FIX
-REPO_RAW="$REPO_RAW" python3 -I "$TMPPY" "$@"
+# ============================================================================
+#  WRITE: runner/server.py  (web UI with full-power agent)
+# ============================================================================
+write_server() {
+  cat > "$RUNNER_DIR/server.py" <<'PYEOF'
+"""AyhanX-Agent — premium web UI with full-power agent."""
+import json
+import os
+from datetime import datetime
+from pathlib import Path
+from typing import AsyncIterator
+
+import httpx
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse, StreamingResponse
+from pydantic import BaseModel
+
+try:
+    from .tools import TOOL_IMPLS, TOOL_SPECS
+except ImportError:
+    from tools import TOOL_IMPLS, TOOL_SPECS
+
+VERSION = os.environ.get("AI_RUNNER_VERSION", "4.0.0")
+APP_DIR = Path(os.environ.get("APP_DIR", Path.home() / ".ai_platform"))
+CONFIG_PATH = APP_DIR / "config.json"
+PROVIDERS_FILE = APP_DIR / "providers.json"
+PROVIDER_FILE = APP_DIR / "provider"
+CHATS_DIR = APP_DIR / "chats"
+CHATS_DIR.mkdir(parents=True, exist_ok=True)
+
+LOCAL_PROVIDERS = {"ollama", "lmstudio", "vllm", "llamacpp", "localai"}
+LABELS = {"deepseek": "DeepSeek", "openrouter": "OpenRouter", "groq": "Groq",
+          "google": "Google AI Studio", "ollama": "Ollama", "lmstudio": "LM Studio",
+          "vllm": "vLLM", "llamacpp": "llama.cpp", "localai": "LocalAI"}
+PROVIDER_MODELS = {
+    "deepseek": ["deepseek-chat", "deepseek-reasoner"],
+    "openrouter": ["deepseek/deepseek-chat", "deepseek/deepseek-chat-v3-0324:free",
+                   "deepseek/deepseek-r1:free", "meta-llama/llama-3.3-70b-instruct:free",
+                   "qwen/qwen-2.5-72b-instruct:free", "microsoft/phi-4:free"],
+    "groq": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768", "gemma2-9b-it"],
+    "google": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-flash-latest", "gemini-flash-lite-latest"],
+    "ollama": [], "lmstudio": [], "vllm": [], "llamacpp": [], "localai": [],
+}
+
+AGENT_SYSTEM = (
+    "You are AyhanX-Agent, a capable coding assistant with FULL access "
+    "to the user's filesystem via tools.\n\n"
+    "RULES:\n"
+    "1. When the user asks you to create/edit/run code or files, USE the "
+    "tools (write_file, edit_file, run_shell, run_python). Do NOT just "
+    "show code — actually write and run it.\n"
+    "2. When the user asks something that needs real data (time, files, "
+    "calculations), call the appropriate tool.\n"
+    "3. After creating a file, verify it works (run it if applicable).\n"
+    "4. Be concise in your final answer — show what you did.\n"
+    "5. Paths are relative to $HOME. Use relative paths.\n"
+    "6. NEVER use destructive commands (rm -rf /, mkfs, dd, etc.)"
+)
+
+def _load_providers():
+    if PROVIDERS_FILE.exists():
+        try: return json.loads(PROVIDERS_FILE.read_text())
+        except Exception: pass
+    return {}
+
+def _active():
+    try: return PROVIDER_FILE.read_text().strip()
+    except Exception: return "deepseek"
+
+def _load_cfg():
+    if CONFIG_PATH.exists():
+        try: return json.loads(CONFIG_PATH.read_text())
+        except Exception: pass
+    return {"model": "deepseek-chat", "system_prompt": "", "agent_mode": False}
+
+def _save_cfg(cfg):
+    CONFIG_PATH.write_text(json.dumps(cfg, indent=2))
+    try: os.chmod(CONFIG_PATH, 0o600)
+    except Exception: pass
+
+def _client_info():
+    providers = _load_providers()
+    name = _active()
+    if name not in providers: name = next(iter(providers), "deepseek")
+    p = providers.get(name, {"key": "local", "url": "https://api.deepseek.com", "model": "deepseek-chat"})
+    return name, p
+
+def _headers(name, key):
+    h = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    if name == "openrouter":
+        h["HTTP-Referer"] = "https://github.com/AyhanMansur/AyhanX-Agent"
+        h["X-Title"] = "AyhanX-Agent"
+    return h
+
+def _err_msg(status, body):
+    msg = body
+    try: msg = json.loads(body).get("error", {}).get("message", body)
+    except Exception: pass
+    return f"HTTP {status}: {msg}"
+
+class ChatReq(BaseModel):
+    conversation_id: str | None = None
+    message: str
+    agent: bool = False
+
+class SwitchReq(BaseModel):
+    provider: str
+
+class ModelReq(BaseModel):
+    model: str
+
+class AgentReq(BaseModel):
+    enabled: bool
+
+app = FastAPI(title="AyhanX-Agent", version=VERSION)
+
+@app.get("/api/config")
+def get_config():
+    name, p = _client_info()
+    cfg = _load_cfg()
+    return {"version": VERSION, "provider": name, "provider_label": LABELS.get(name, name),
+            "is_local": name in LOCAL_PROVIDERS, "model": cfg.get("model", p["model"]),
+            "agent_mode": cfg.get("agent_mode", False)}
+
+@app.get("/api/providers")
+def list_providers():
+    providers = _load_providers()
+    return [{"name": k, "label": LABELS.get(k, k), "url": v["url"], "model": v["model"],
+             "active": k == _active(), "local": k in LOCAL_PROVIDERS} for k, v in providers.items()]
+
+@app.post("/api/switch")
+def switch(req: SwitchReq):
+    providers = _load_providers()
+    if req.provider not in providers: raise HTTPException(404, "provider not found")
+    PROVIDER_FILE.write_text(req.provider)
+    p = providers[req.provider]
+    cfg = _load_cfg(); cfg["model"] = p["model"]; _save_cfg(cfg)
+    return {"ok": True, "provider": req.provider, "model": p["model"]}
+
+@app.get("/api/models")
+def list_models():
+    name, p = _client_info()
+    cfg = _load_cfg()
+    built_in = PROVIDER_MODELS.get(name, [])
+    custom = cfg.get("custom_models", [])
+    all_m = built_in + [m for m in custom if m not in built_in]
+    if name in LOCAL_PROVIDERS:
+        try:
+            r = httpx.get(f"{p['url'].rstrip('/')}/models", headers=_headers(name, p["key"]), timeout=4)
+            if r.status_code == 200:
+                ids = [m["id"] for m in r.json().get("data", [])]
+                for m in ids:
+                    if m not in all_m: all_m.append(m)
+        except Exception: pass
+    return {"models": all_m, "current": cfg.get("model", p["model"])}
+
+@app.post("/api/model")
+def set_model(req: ModelReq):
+    cfg = _load_cfg(); cfg["model"] = req.model; _save_cfg(cfg)
+    return {"ok": True, "model": req.model}
+
+@app.post("/api/agent")
+def set_agent(req: AgentReq):
+    cfg = _load_cfg(); cfg["agent_mode"] = req.enabled; _save_cfg(cfg)
+    return {"ok": True, "agent_mode": req.enabled}
+
+@app.get("/api/conversations")
+def list_convs():
+    items = []
+    for p in sorted(CHATS_DIR.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True):
+        if p.stem == "last": continue
+        try: n = len(json.loads(p.read_text()))
+        except Exception: n = 0
+        items.append({"id": p.stem, "messages": n,
+                       "updated": datetime.fromtimestamp(p.stat().st_mtime).isoformat()})
+    return items
+
+@app.delete("/api/conversations/{cid}")
+def del_conv(cid: str):
+    p = CHATS_DIR / f"{cid}.json"
+    if p.exists(): p.unlink()
+    return {"ok": True}
+
+@app.get("/api/conversations/{cid}")
+def get_conv(cid: str):
+    p = CHATS_DIR / f"{cid}.json"
+    if not p.exists(): raise HTTPException(404, "not found")
+    return {"id": cid, "messages": json.loads(p.read_text())}
+
+@app.post("/api/chat")
+async def chat(req: ChatReq):
+    text = req.message.strip()
+    if not text: raise HTTPException(400, "empty message")
+
+    name, p = _client_info()
+    cfg = _load_cfg()
+    key = p["key"]; base = p["url"].rstrip("/")
+    model = cfg.get("model", p["model"])
+    system_prompt = cfg.get("system_prompt", "")
+
+    cid = req.conversation_id or datetime.now().strftime("chat-%Y%m%d-%H%M%S")
+    conv_path = CHATS_DIR / f"{cid}.json"
+    if conv_path.exists():
+        try: messages = json.loads(conv_path.read_text())
+        except Exception: messages = []
+    else:
+        messages = []
+
+    messages.append({"role": "user", "content": text})
+    conv_path.write_text(json.dumps(messages, indent=2))
+
+    async def stream():
+        try:
+            yield f"data: {json.dumps({'type':'start','conversation_id':cid})}\n\n"
+            if req.agent:
+                async for chunk in _run_agent(messages, name, key, base, model, system_prompt, cid, conv_path):
+                    yield chunk
+            else:
+                async for chunk in _run_chat(messages, name, key, base, model, system_prompt, cid, conv_path):
+                    yield chunk
+        except Exception as e:
+            yield f"data: {json.dumps({'type':'error','message':str(e)})}\n\n"
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+async def _run_chat(messages, name, key, base, model, system_prompt, cid, conv_path):
+    msgs = []
+    if system_prompt: msgs.append({"role": "system", "content": system_prompt})
+    msgs.extend(messages)
+    full = []
+    async with httpx.AsyncClient(timeout=180) as client:
+        async with client.stream("POST", f"{base}/chat/completions",
+                                  headers=_headers(name, key),
+                                  json={"model": model, "messages": msgs, "stream": True}) as r:
+            if r.status_code >= 400:
+                body = (await r.aread()).decode(errors="replace")
+                yield f"data: {json.dumps({'type':'error','message':_err_msg(r.status_code, body)})}\n\n"
+                return
+            async for line in r.aiter_lines():
+                if not line.startswith("data:"): continue
+                data = line[5:].strip()
+                if data == "[DONE]": break
+                try: obj = json.loads(data)
+                except json.JSONDecodeError: continue
+                delta = obj.get("choices", [{}])[0].get("delta", {})
+                if chunk := delta.get("content"):
+                    full.append(chunk)
+                    yield f"data: {json.dumps({'type':'delta','text':chunk})}\n\n"
+    answer = "".join(full)
+    messages.append({"role": "assistant", "content": answer})
+    conv_path.write_text(json.dumps(messages, indent=2))
+    yield f"data: {json.dumps({'type':'done'})}\n\n"
+
+async def _run_agent(messages, name, key, base, model, system_prompt, cid, conv_path):
+    msgs = [{"role": "system", "content": system_prompt or AGENT_SYSTEM}] + messages
+    for iteration in range(12):
+        print(f"[agent] iter {iteration+1} · {model}", flush=True)
+        try:
+            async with httpx.AsyncClient(timeout=180) as client:
+                r = await client.post(f"{base}/chat/completions", headers=_headers(name, key),
+                                       json={"model": model, "messages": msgs,
+                                             "tools": TOOL_SPECS, "tool_choice": "auto"})
+        except Exception as e:
+            yield f"data: {json.dumps({'type':'error','message':f'network: {e}'})}\n\n"
+            return
+        if r.status_code >= 400:
+            yield f"data: {json.dumps({'type':'error','message':_err_msg(r.status_code, r.text)})}\n\n"
+            return
+        obj = r.json()
+        msg = obj.get("choices", [{}])[0].get("message", {})
+        tcalls = msg.get("tool_calls") or []
+        print(f"[agent] tool_calls: {len(tcalls)}", flush=True)
+        if not tcalls:
+            content = msg.get("content") or ""
+            if content:
+                yield f"data: {json.dumps({'type':'delta','text':content})}\n\n"
+            messages.append({"role": "assistant", "content": content})
+            conv_path.write_text(json.dumps(messages, indent=2))
+            yield f"data: {json.dumps({'type':'done'})}\n\n"
+            return
+        if msg.get("content"):
+            yield f"data: {json.dumps({'type':'delta','text':msg['content']})}\n\n"
+        msgs.append(msg)
+        for tc in tcalls:
+            fn = tc.get("function", {}); tname = fn.get("name", "?")
+            try: args = json.loads(fn.get("arguments") or "{}")
+            except json.JSONDecodeError: args = {}
+            print(f"[agent] {tname}({json.dumps(args)[:80]})", flush=True)
+            yield f"data: {json.dumps({'type':'tool','name':tname,'args':args})}\n\n"
+            impl = TOOL_IMPLS.get(tname)
+            if impl:
+                try: result = impl(args)
+                except Exception as e: result = f"{type(e).__name__}: {e}"
+            else: result = f"unknown tool: {tname}"
+            print(f"[agent] → {str(result)[:100]}", flush=True)
+            yield f"data: {json.dumps({'type':'tool_result','text':result[:800]})}\n\n"
+            msgs.append({"role": "tool", "tool_call_id": tc.get("id", ""), "content": result})
+    yield f"data: {json.dumps({'type':'delta','text':'\n\n[agent stopped after 12 iterations]'})}\n\n"
+    yield f"data: {json.dumps({'type':'done'})}\n\n"
+
+
+HTML = r"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AyhanX-Agent</title>
+<style>
+:root{--bg:#080b12;--panel:#10141e;--panel-2:#161b27;--border:#232a3d;--border-2:#2f3849;
+--text:#e8eef7;--dim:#8b95a8;--mute:#5c6577;
+--accent:#5eead4;--accent-2:#2dd4bf;--glow:rgba(94,234,212,.15);
+--red:#f87171;--amber:#fbbf24;--green:#34d399;--violet:#a78bfa;--blue:#60a5fa}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg);color:var(--text);
+font:15px/1.6 -apple-system,BlinkMacSystemFont,"Inter","Segoe UI",Roboto,sans-serif;
+-webkit-font-smoothing:antialiased}
+body::before{content:'';position:fixed;inset:-50%;z-index:0;pointer-events:none;
+background:radial-gradient(circle at 20% 10%,rgba(94,234,212,.10),transparent 40%),
+radial-gradient(circle at 80% 90%,rgba(167,139,250,.08),transparent 40%);
+animation:drift 24s ease-in-out infinite alternate}
+@keyframes drift{0%{transform:translate(0,0) scale(1)}100%{transform:translate(3%,-2%) scale(1.05)}}
+#app{position:relative;z-index:1;display:flex;height:100vh}
+.sidebar{width:270px;background:rgba(16,20,30,.6);backdrop-filter:blur(20px);
+border-right:1px solid var(--border);display:flex;flex-direction:column;
+flex-shrink:0;transition:transform .3s cubic-bezier(.4,0,.2,1)}
+.sidebar-head{padding:18px 18px 14px}
+.brand{display:flex;align-items:center;gap:10px;margin-bottom:18px}
+.brand-icon{width:28px;height:28px;border-radius:8px;
+background:linear-gradient(135deg,var(--accent),var(--accent-2));
+display:flex;align-items:center;justify-content:center;
+color:#0a0e14;font-weight:700;font-size:16px;
+box-shadow:0 0 16px var(--glow)}
+.brand-name{font-weight:600;font-size:14px}
+.brand-ver{font-size:11px;color:var(--mute)}
+.new-btn{width:100%;padding:10px 14px;border-radius:10px;
+background:linear-gradient(135deg,rgba(94,234,212,.15),rgba(45,212,191,.08));
+border:1px solid rgba(94,234,212,.3);color:var(--accent);
+font-weight:600;font-size:13px;cursor:pointer;
+display:flex;align-items:center;justify-content:center;gap:8px;
+transition:all .2s;font-family:inherit}
+.new-btn:hover{background:linear-gradient(135deg,rgba(94,234,212,.25),rgba(45,212,191,.15));
+box-shadow:0 0 20px var(--glow);transform:translateY(-1px)}
+.convs{flex:1;overflow-y:auto;padding:8px 10px}
+.conv-item{padding:10px 12px;border-radius:10px;cursor:pointer;
+display:flex;align-items:center;gap:8px;font-size:13px;color:var(--dim);
+transition:all .15s;margin-bottom:2px}
+.conv-item:hover{background:rgba(255,255,255,.04);color:var(--text)}
+.conv-item.active{background:rgba(94,234,212,.1);color:var(--accent);
+border:1px solid rgba(94,234,212,.2)}
+.conv-item .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.conv-item .del{opacity:0;color:var(--red);font-size:16px;padding:0 2px;
+background:none;border:none;cursor:pointer}
+.conv-item:hover .del{opacity:.7}
+.empty-state{padding:40px 20px;text-align:center;color:var(--mute);font-size:12px}
+.empty-state .icon{font-size:32px;margin-bottom:8px;opacity:.5}
+.sidebar-foot{padding:12px 14px;border-top:1px solid var(--border)}
+.provider-btn{width:100%;padding:10px 12px;border-radius:10px;
+background:rgba(255,255,255,.03);border:1px solid var(--border);
+color:var(--text);font-size:12.5px;cursor:pointer;
+display:flex;align-items:center;gap:8px;transition:all .15s;font-family:inherit}
+.provider-btn:hover{background:rgba(255,255,255,.06);border-color:var(--border-2)}
+.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;background:var(--green);
+box-shadow:0 0 8px currentColor}
+.dot.deepseek{background:var(--blue);box-shadow:0 0 8px var(--blue)}
+.dot.openrouter{background:var(--violet);box-shadow:0 0 8px var(--violet)}
+.dot.groq{background:var(--amber);box-shadow:0 0 8px var(--amber)}
+.dot.google{background:var(--red);box-shadow:0 0 8px var(--red)}
+.dot.local{background:var(--green);box-shadow:0 0 8px var(--green)}
+.provider-name{flex:1;text-align:left;font-weight:500}
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.header{padding:14px 24px;border-bottom:1px solid var(--border);
+display:flex;align-items:center;gap:12px;
+background:rgba(11,15,23,.6);backdrop-filter:blur(20px)}
+.menu-btn{display:none;background:none;border:none;color:var(--text);
+font-size:20px;cursor:pointer;padding:6px}
+.model-sel{padding:6px 12px;border-radius:8px;background:var(--panel);
+border:1px solid var(--border);color:var(--text);font-size:13px;
+cursor:pointer;display:flex;align-items:center;gap:8px;
+transition:all .15s;font-family:inherit}
+.model-sel:hover{background:var(--panel-2);border-color:var(--border-2)}
+.model-sel .chev{font-size:10px;color:var(--mute)}
+.spacer{flex:1}
+.mode-toggle{padding:6px 14px;border-radius:999px;font-size:12px;font-weight:600;
+background:rgba(52,211,153,.15);border:1px solid rgba(52,211,153,.3);
+color:var(--green);cursor:pointer;display:flex;align-items:center;gap:6px;
+transition:all .2s;font-family:inherit}
+.mode-toggle:hover{filter:brightness(1.15)}
+.mode-toggle.agent{background:rgba(251,191,36,.15);
+border-color:rgba(251,191,36,.3);color:var(--amber)}
+.mode-dot{width:6px;height:6px;border-radius:50%;background:currentColor;
+box-shadow:0 0 6px currentColor}
+.icon-btn{background:none;border:1px solid var(--border);color:var(--dim);
+width:34px;height:34px;border-radius:8px;cursor:pointer;font-size:16px;
+display:flex;align-items:center;justify-content:center;transition:all .15s}
+.icon-btn:hover{background:var(--panel);color:var(--text);border-color:var(--border-2)}
+.chat{flex:1;overflow-y:auto;padding:8px 0 140px;scroll-behavior:smooth}
+.chat::-webkit-scrollbar{width:8px}
+.chat::-webkit-scrollbar-thumb{background:var(--border-2);border-radius:4px}
+.welcome{max-width:820px;margin:100px auto 0;padding:0 32px;text-align:center;animation:fadeUp .6s ease-out}
+@keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+.welcome-icon{width:64px;height:64px;border-radius:18px;margin:0 auto 24px;
+background:linear-gradient(135deg,var(--accent),var(--accent-2));
+display:flex;align-items:center;justify-content:center;font-size:28px;
+color:#0a0e14;font-weight:700;
+box-shadow:0 0 40px var(--glow),0 8px 32px rgba(0,0,0,.3)}
+.welcome h1{font-size:36px;font-weight:700;margin-bottom:8px;letter-spacing:-.5px;
+background:linear-gradient(135deg,var(--text),var(--accent));
+-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.welcome p{color:var(--dim);font-size:15px;margin-bottom:40px}
+.suggestions{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:32px}
+.sug{padding:14px 18px;background:rgba(255,255,255,.02);
+border:1px solid var(--border);border-radius:12px;color:var(--dim);
+font-size:13.5px;text-align:left;cursor:pointer;transition:all .2s;font-family:inherit}
+.sug:hover{background:rgba(94,234,212,.06);border-color:rgba(94,234,212,.3);
+color:var(--text);transform:translateY(-1px)}
+.message{max-width:820px;margin:0 auto;padding:14px 32px;display:flex;gap:16px;
+animation:fadeUp .3s ease-out}
+.message+.message{padding-top:4px}
+.msg-body{flex:1;min-width:0;line-height:1.7;word-wrap:break-word}
+.msg-role{font-size:11px;font-weight:600;color:var(--mute);
+margin-bottom:4px;letter-spacing:.5px;text-transform:uppercase}
+.msg-user{justify-content:flex-end}
+.msg-user .msg-body{flex:0 1 auto;max-width:75%;
+background:linear-gradient(135deg,rgba(94,234,212,.08),rgba(45,212,191,.04));
+border:1px solid rgba(94,234,212,.2);border-radius:16px;padding:10px 16px;
+color:var(--text);white-space:pre-wrap}
+.msg-user .msg-role{display:none}
+.msg-ai .msg-role{color:var(--accent)}
+.msg-ai .msg-body p{margin-bottom:12px}
+.msg-ai .msg-body p:last-child{margin-bottom:0}
+.msg-ai .msg-body code{background:var(--panel-2);padding:2px 6px;border-radius:5px;
+font:13px/1.4 "SF Mono","JetBrains Mono",Menlo,monospace;color:var(--accent)}
+.msg-ai .msg-body pre{background:#060810;border:1px solid var(--border);
+padding:14px 16px;border-radius:10px;overflow-x:auto;margin:12px 0;
+font:13px/1.5 "SF Mono","JetBrains Mono",Menlo,monospace}
+.msg-ai .msg-body pre code{background:none;padding:0;color:var(--text)}
+.msg-ai .msg-body ul,.msg-ai .msg-body ol{margin:8px 0 12px 24px}
+.msg-ai .msg-body li{margin:4px 0}
+.msg-ai .msg-body h1,.msg-ai .msg-body h2,.msg-ai .msg-body h3{
+margin:16px 0 8px;font-weight:600;color:var(--text)}
+.msg-ai .msg-body h1{font-size:1.4em}
+.msg-ai .msg-body h2{font-size:1.2em}
+.msg-ai .msg-body h3{font-size:1.1em}
+.msg-ai .msg-body a{color:var(--accent);text-decoration:none;border-bottom:1px solid transparent}
+.msg-ai .msg-body a:hover{border-bottom-color:var(--accent)}
+.msg-ai .msg-body strong{color:var(--text);font-weight:600}
+.msg-ai .msg-body blockquote{border-left:3px solid var(--border-2);
+padding-left:14px;color:var(--dim);margin:12px 0}
+.tool-cards{margin:8px 0 0 32px}
+.tool-card{background:rgba(251,191,36,.06);border:1px solid rgba(251,191,36,.2);
+border-radius:8px;padding:10px 14px;margin:6px 0;font-size:12px;
+font-family:"SF Mono","JetBrains Mono",Menlo,monospace}
+.tool-card .tool-name{color:var(--amber);font-weight:600}
+.tool-card .tool-args{color:var(--mute);margin-left:8px}
+.tool-card .tool-result{color:var(--text);margin-top:6px;padding-top:6px;
+border-top:1px solid rgba(251,191,36,.15);white-space:pre-wrap;
+max-height:120px;overflow-y:auto;font-size:11.5px;line-height:1.5}
+.msg-err{background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.3);
+border-radius:10px;padding:12px 16px;color:var(--red);font-size:13px}
+.cursor{display:inline-block;width:7px;height:16px;background:var(--accent);
+vertical-align:middle;margin-left:2px;animation:blink 1s steps(2) infinite;border-radius:2px}
+@keyframes blink{0%,50%{opacity:1}51%,100%{opacity:0}}
+.composer-wrap{position:fixed;bottom:0;left:270px;right:0;
+padding:20px 24px 22px;background:linear-gradient(transparent,var(--bg) 30%);z-index:10}
+.composer{max-width:820px;margin:0 auto}
+.composer-inner{background:rgba(16,20,30,.85);backdrop-filter:blur(20px);
+border:1px solid var(--border);border-radius:18px;padding:8px 8px 8px 18px;
+display:flex;align-items:flex-end;gap:8px;transition:all .2s;
+box-shadow:0 4px 24px rgba(0,0,0,.3)}
+.composer-inner:focus-within{border-color:rgba(94,234,212,.4);
+box-shadow:0 0 0 3px var(--glow),0 4px 24px rgba(0,0,0,.4)}
+#input{flex:1;background:none;border:none;outline:none;color:var(--text);
+font:inherit;resize:none;max-height:200px;padding:8px 0;line-height:1.6}
+#input::placeholder{color:var(--mute)}
+.send-btn{width:38px;height:38px;border-radius:12px;border:none;cursor:pointer;
+background:linear-gradient(135deg,var(--accent),var(--accent-2));
+color:#0a0e14;font-size:18px;font-weight:700;
+display:flex;align-items:center;justify-content:center;transition:all .2s;
+flex-shrink:0;font-family:inherit}
+.send-btn:hover:not(:disabled){transform:scale(1.05);box-shadow:0 0 20px var(--glow)}
+.send-btn:disabled{background:var(--panel-2);color:var(--mute);cursor:not-allowed}
+.composer-hint{max-width:820px;margin:8px auto 0;padding:0 4px;
+display:flex;justify-content:space-between;font-size:11px;color:var(--mute)}
+#status{color:var(--accent)}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);
+z-index:100;display:none;align-items:center;justify-content:center;padding:20px;
+animation:fadeIn .15s}
+.modal.open{display:flex}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.modal-content{background:var(--panel);border:1px solid var(--border-2);
+border-radius:16px;max-width:480px;width:100%;max-height:80vh;
+display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.5)}
+.modal-head{padding:18px 22px;border-bottom:1px solid var(--border);
+display:flex;justify-content:space-between;align-items:center}
+.modal-title{font-size:15px;font-weight:600}
+.modal-close{background:none;border:none;color:var(--mute);cursor:pointer;font-size:20px;padding:4px}
+.modal-close:hover{color:var(--text)}
+.modal-body{padding:12px;overflow-y:auto}
+.modal-opt{padding:12px 16px;border-radius:10px;cursor:pointer;
+display:flex;align-items:center;gap:12px;font-size:13.5px;color:var(--text);
+transition:background .15s;border:1px solid transparent}
+.modal-opt:hover{background:rgba(255,255,255,.05)}
+.modal-opt.active{background:rgba(94,234,212,.1);border-color:rgba(94,234,212,.25);color:var(--accent)}
+.modal-opt .opt-main{flex:1;font-weight:500}
+.modal-opt .opt-sub{font-size:11px;color:var(--mute);font-family:"SF Mono","JetBrains Mono",Menlo,monospace}
+.toast{position:fixed;bottom:100px;left:50%;transform:translateX(-50%) translateY(20px);
+background:var(--panel-2);border:1px solid var(--border-2);
+padding:10px 20px;border-radius:10px;font-size:13px;color:var(--text);
+opacity:0;pointer-events:none;transition:all .3s;z-index:200;
+box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.err{border-color:rgba(248,113,113,.4);color:var(--red)}
+@media(max-width:768px){
+.sidebar{position:fixed;inset:0 auto 0 0;z-index:50;transform:translateX(-100%)}
+.sidebar.open{transform:translateX(0)}
+.menu-btn{display:block}
+.composer-wrap{left:0;padding:16px 12px}
+.suggestions{grid-template-columns:1fr}
+.welcome h1{font-size:28px}
+.welcome{margin-top:60px}
+.msg-user .msg-body{max-width:90%}
+}
+</style>
+</head>
+<body>
+<div id="app">
+<aside class="sidebar" id="sidebar">
+<div class="sidebar-head">
+<div class="brand">
+<div class="brand-icon">◆</div>
+<div>
+<div class="brand-name">AyhanX-Agent</div>
+<div class="brand-ver">v<span id="ver">4.0.0</span></div>
+</div>
+</div>
+<button class="new-btn" onclick="newConversation()"><span>+</span><span>New chat</span></button>
+</div>
+<div class="convs" id="convs"></div>
+<div class="sidebar-foot">
+<button class="provider-btn" onclick="openProviderPicker()">
+<span class="dot" id="provider-dot"></span>
+<span class="provider-name" id="provider-name">DeepSeek</span>
+<span style="color:var(--mute);font-size:12px">⇄</span>
+</button>
+</div>
+</aside>
+<main class="main">
+<header class="header">
+<button class="menu-btn" onclick="toggleSidebar()">☰</button>
+<button class="model-sel" onclick="openModelPicker()">
+<span id="model-name">deepseek-chat</span>
+<span class="chev">▾</span>
+</button>
+<div class="spacer"></div>
+<button class="mode-toggle" id="mode-toggle" onclick="toggleAgent()">
+<span class="mode-dot"></span><span id="mode-text">Chat</span>
+</button>
+<button class="icon-btn" onclick="newConversation()" title="New chat">⊕</button>
+</header>
+<div class="chat" id="chat">
+<div class="welcome" id="welcome">
+<div class="welcome-icon">◆</div>
+<h1>AyhanX-Agent</h1>
+<p>Premium AI chat · full terminal access in Agent mode</p>
+<div class="suggestions">
+<button class="sug" onclick="suggest('Write a Python script that finds duplicate files and run it')">📝 Write & run a duplicate finder</button>
+<button class="sug" onclick="suggest('List my home directory and tell me what is here')">📁 Explore my home directory</button>
+<button class="sug" onclick="suggest('Create a FastAPI server in a folder called api and run it')">🚀 Build a FastAPI server</button>
+<button class="sug" onclick="suggest('Explain quantum computing in simple terms')">💡 Explain quantum computing</button>
+</div>
+</div>
+</div>
+<div class="composer-wrap">
+<div class="composer">
+<div class="composer-inner">
+<textarea id="input" placeholder="Message AyhanX-Agent..." rows="1"
+onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+<button class="send-btn" id="send-btn" onclick="sendMessage()" disabled>↑</button>
+</div>
+</div>
+<div class="composer-hint">
+<span>Enter send · Shift+Enter newline</span>
+<span id="status">Ready</span>
+</div>
+</div>
+</main>
+</div>
+<div class="modal" id="modal" onclick="closeModal(event)">
+<div class="modal-content" onclick="event.stopPropagation()">
+<div class="modal-head">
+<div class="modal-title" id="modal-title">Select</div>
+<button class="modal-close" onclick="closeModal()">×</button>
+</div>
+<div class="modal-body" id="modal-body"></div>
+</div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const state = {provider:"deepseek", model:"deepseek-chat", agent:false, convId:null,
+                messages:[], streaming:false, config:{}};
+const $ = s => document.querySelector(s);
+const input = $('#input'), sendBtn = $('#send-btn'), chat = $('#chat'),
+      status = $('#status'), welcome = $('#welcome');
+
+function escapeHtml(s){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function md(text){
+  if(!text) return '';
+  let s = escapeHtml(text);
+  s = s.replace(/```(\w*)\n?([\s\S]*?)```/g,(m,lang,code)=>`<pre><code>${code}</code></pre>`);
+  s = s.replace(/`([^`]+)`/g,'<code>$1</code>');
+  s = s.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>');
+  s = s.replace(/\*([^*]+)\*/g,'<em>$1</em>');
+  s = s.replace(/^### (.+)$/gm,'<h3>$1</h3>');
+  s = s.replace(/^## (.+)$/gm,'<h2>$1</h2>');
+  s = s.replace(/^# (.+)$/gm,'<h1>$1</h1>');
+  s = s.replace(/^- (.+)$/gm,'<li>$1</li>');
+  s = s.replace(/(<li>.*<\/li>\n?)+/g,m=>`<ul>${m}</ul>`);
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2" target="_blank">$1</a>');
+  s = s.replace(/^&gt; (.+)$/gm,'<blockquote>$1</blockquote>');
+  s = s.split('\n\n').map(p=>p.trim()).filter(Boolean).map(p=>{
+    if(/^<(h[1-6]|ul|ol|pre|blockquote|li)/.test(p)) return p;
+    return `<p>${p.replace(/\n/g,'<br>')}</p>`;
+  }).join('');
+  return s;
+}
+
+async function api(path, opts={}){
+  const r = await fetch(path, {headers:{'Content-Type':'application/json'}, ...opts});
+  if(!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+async function loadConfig(){
+  const c = await api('/api/config');
+  state.config = c; state.provider = c.provider; state.model = c.model; state.agent = c.agent_mode;
+  $('#ver').textContent = c.version;
+  $('#provider-name').textContent = c.provider_label;
+  $('#provider-dot').className = 'dot ' + (c.is_local ? 'local' : c.provider);
+  $('#model-name').textContent = c.model;
+  updateModeBtn();
+}
+
+function updateModeBtn(){
+  const b = $('#mode-toggle');
+  b.classList.toggle('agent', state.agent);
+  $('#mode-text').textContent = state.agent ? 'Agent' : 'Chat';
+}
+
+async function loadConversations(){
+  const list = await api('/api/conversations');
+  const el = $('#convs');
+  if(!list.length){
+    el.innerHTML = '<div class="empty-state"><div class="icon">💬</div>No conversations yet</div>';
+    return;
+  }
+  el.innerHTML = list.map(c => `
+    <div class="conv-item ${c.id===state.convId?'active':''}" data-id="${c.id}">
+      <span class="title">${escapeHtml(c.id)}</span>
+      <button class="del" onclick="event.stopPropagation();delConv('${c.id}')" title="Delete">×</button>
+    </div>`).join('');
+  el.querySelectorAll('.conv-item').forEach(item => {
+    item.onclick = () => loadConversation(item.dataset.id);
+  });
+}
+
+async function loadConversation(id){
+  const data = await api(`/api/conversations/${id}`);
+  state.convId = id; state.messages = data.messages;
+  hideWelcome(); chat.innerHTML = '';
+  for(const m of data.messages){
+    if(m.role === 'user') addMessage('user', m.content);
+    else if(m.role === 'assistant') addMessage('ai', m.content);
+  }
+  await loadConversations();
+  scrollDown();
+}
+
+async function delConv(id){
+  await api(`/api/conversations/${id}`, {method:'DELETE'});
+  if(state.convId === id) newConversation();
+  await loadConversations();
+}
+
+function hideWelcome(){ if(welcome) welcome.style.display = 'none'; }
+function scrollDown(){ chat.scrollTop = chat.scrollHeight; }
+
+function addMessage(role, content){
+  hideWelcome();
+  const el = document.createElement('div');
+  el.className = `message msg-${role}`;
+  if(role === 'user'){
+    el.innerHTML = `<div class="msg-body">${escapeHtml(content)}</div>`;
+  } else {
+    el.innerHTML = `<div class="msg-body"><div class="msg-role">Assistant</div><div class="md"></div></div>`;
+    el.querySelector('.md').innerHTML = md(content);
+  }
+  chat.appendChild(el);
+  scrollDown();
+  return el;
+}
+
+function showToast(msg, isErr){
+  const t = $('#toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (isErr ? ' err' : '');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.className = 'toast', 2500);
+}
+
+function setStatus(s){ status.textContent = s; }
+function suggest(text){ input.value = text; autoResize(input); sendMessage(); }
+
+function autoResize(el){
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+  sendBtn.disabled = !el.value.trim() || state.streaming;
+}
+
+function handleKey(e){
+  if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); sendMessage(); }
+}
+
+async function sendMessage(){
+  const text = input.value.trim();
+  if(!text || state.streaming) return;
+  input.value = ''; autoResize(input);
+  addMessage('user', text);
+  state.messages.push({role:'user', content:text});
+  state.streaming = true; sendBtn.disabled = true; setStatus('Thinking…');
+
+  const aiEl = addMessage('ai', '');
+  const mdEl = aiEl.querySelector('.md');
+  let answer = '';
+  let toolCards = [];
+
+  try {
+    const r = await fetch('/api/chat', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({conversation_id: state.convId, message: text, agent: state.agent})
+    });
+    if(!r.ok) throw new Error('HTTP ' + r.status);
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    setStatus('Streaming…');
+
+    while(true){
+      const {done, value} = await reader.read();
+      if(done) break;
+      buf += decoder.decode(value, {stream:true});
+      let idx;
+      while((idx = buf.indexOf('\n\n')) >= 0){
+        const chunk = buf.slice(0, idx); buf = buf.slice(idx + 2);
+        for(const line of chunk.split('\n')){
+          if(!line.startsWith('data: ')) continue;
+          try {
+            const obj = JSON.parse(line.slice(6));
+            if(obj.type === 'start'){ state.convId = obj.conversation_id; }
+            else if(obj.type === 'delta'){
+              answer += obj.text;
+              mdEl.innerHTML = md(answer) + '<span class="cursor"></span>';
+              scrollDown();
+            }
+            else if(obj.type === 'tool'){
+              const card = document.createElement('div');
+              card.className = 'tool-card';
+              card.innerHTML = `<div><span class="tool-name">⚙ ${obj.name}</span><span class="tool-args">${escapeHtml(JSON.stringify(obj.args).slice(0,100))}</span></div><div class="tool-result">running...</div>`;
+              let tc = document.createElement('div');
+              tc.className = 'tool-cards';
+              tc.appendChild(card);
+              aiEl.querySelector('.msg-body').appendChild(tc);
+              toolCards.push({card, name: obj.name});
+              scrollDown();
+            }
+            else if(obj.type === 'tool_result'){
+              if(toolCards.length){
+                const last = toolCards[toolCards.length-1];
+                const resultDiv = last.card.querySelector('.tool-result');
+                if(resultDiv) resultDiv.textContent = String(obj.text).slice(0, 500);
+              }
+            }
+            else if(obj.type === 'error'){
+              mdEl.innerHTML = `<div class="msg-err">${escapeHtml(obj.message)}</div>`;
+              setStatus('Error');
+            }
+            else if(obj.type === 'done'){
+              mdEl.innerHTML = md(answer);
+              setStatus('Ready');
+            }
+          } catch(_){}
+        }
+      }
+    }
+
+    if(answer) state.messages.push({role:'assistant', content:answer});
+    await loadConversations();
+  } catch(e){
+    mdEl.innerHTML = `<div class="msg-err">⚠ ${escapeHtml(e.message)}</div>`;
+    setStatus('Error');
+  } finally {
+    state.streaming = false;
+    sendBtn.disabled = !input.value.trim();
+    setStatus('Ready');
+    input.focus();
+  }
+}
+
+function openModal(title, bodyHtml, onSelect){
+  $('#modal-title').textContent = title;
+  const body = $('#modal-body');
+  body.innerHTML = bodyHtml;
+  body.querySelectorAll('[data-value]').forEach(el => {
+    el.onclick = () => { onSelect(el.dataset.value); closeModal(); };
+  });
+  $('#modal').classList.add('open');
+}
+
+function closeModal(e){
+  if(e && e.target !== $('#modal') && !e.target.classList.contains('modal-close')) return;
+  $('#modal').classList.remove('open');
+}
+
+async function openProviderPicker(){
+  const list = await api('/api/providers');
+  const html = list.map(p => `
+    <div class="modal-opt ${p.active ? 'active' : ''}" data-value="${p.name}">
+      <span class="dot ${p.local ? 'local' : p.name}"></span>
+      <div style="flex:1">
+        <div class="opt-main">${p.label}</div>
+        <div class="opt-sub">${p.model}</div>
+      </div>
+      ${p.active ? '<span style="color:var(--accent);font-size:16px">✓</span>' : ''}
+    </div>`).join('');
+  openModal('Switch provider', html, async (name) => {
+    try {
+      await api('/api/switch', {method:'POST', body: JSON.stringify({provider:name})});
+      await loadConfig();
+      showToast('Switched to ' + name);
+    } catch(e){ showToast('Failed: ' + e.message, true); }
+  });
+}
+
+async function openModelPicker(){
+  const data = await api('/api/models');
+  if(!data.models.length){ showToast('No models available', true); return; }
+  const html = data.models.map(m => `
+    <div class="modal-opt ${m === data.current ? 'active' : ''}" data-value="${m}">
+      <div style="flex:1"><div class="opt-main">${escapeHtml(m)}</div></div>
+      ${m === data.current ? '<span style="color:var(--accent);font-size:16px">✓</span>' : ''}
+    </div>`).join('');
+  openModal('Select model', html, async (model) => {
+    try {
+      await api('/api/model', {method:'POST', body: JSON.stringify({model})});
+      state.model = model;
+      $('#model-name').textContent = model;
+      showToast('Model → ' + model);
+    } catch(e){ showToast('Failed: ' + e.message, true); }
+  });
+}
+
+async function toggleAgent(){
+  state.agent = !state.agent;
+  try {
+    await api('/api/agent', {method:'POST', body: JSON.stringify({enabled: state.agent})});
+    updateModeBtn();
+    showToast(state.agent ? 'Agent mode ON — full terminal access' : 'Agent mode OFF');
+  } catch(e){ showToast('Failed: ' + e.message, true); }
+}
+
+function newConversation(){
+  state.convId = null; state.messages = []; chat.innerHTML = '';
+  if(welcome){ chat.appendChild(welcome); welcome.style.display = ''; }
+  loadConversations(); input.focus();
+}
+
+function toggleSidebar(){ $('#sidebar').classList.toggle('open'); }
+
+(async function init(){
+  await loadConfig();
+  await loadConversations();
+  input.focus();
+  setStatus('Ready');
+})();
+</script>
+</body>
+</html>
+"""
+
+@app.get("/", response_class=HTMLResponse)
+def index(): return HTML
+
+@app.get("/health")
+def health(): return {"ok": True, "version": VERSION}
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", "8080"))
+    host = os.environ.get("HOST", "0.0.0.0")
+    print(f"\n  ◆ AyhanX-Agent web UI")
+    print(f"  → http://localhost:{port}\n")
+    uvicorn.run(app, host=host, port=port, log_level="warning")
+PYEOF
+}
+
+# ============================================================================
+#  COMMANDS
+# ============================================================================
+cmd_tui() { cd "$APP_DIR"; PYTHONPATH="$APP_DIR" "$VENV/bin/python" -m runner.tui || true; }
+
+cmd_web() {
+  local port="${1:-8080}"
+  section "Starting web UI on :$port"
+  local ip; ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  printf '%s  →%s http://localhost:%s\n' "$B4" "$RS" "$port"
+  [[ -n "$ip" ]] && printf '%s  →%s http://%s:%s  (LAN)\n' "$B4" "$RS" "$ip" "$port"
+  printf '%s  Ctrl+C to stop%s\n\n' "$DM" "$RS"
+  cd "$APP_DIR"
+  PORT="$port" PYTHONPATH="$APP_DIR" exec "$VENV/bin/python" -m runner.server
+}
+
+cmd_switch() {
+  local name="${1:-}"
+  [[ -z "$name" ]] && {
+    err "usage: $0 switch <provider>"
+    [[ -f "$PROVIDERS_FILE" ]] && \
+      "$VENV/bin/python" -c "import json;print('\n'.join('  · '+k for k in json.load(open('$PROVIDERS_FILE'))))" 2>/dev/null || true
+    exit 1
+  }
+  if [[ -f "$PROVIDERS_FILE" ]]; then
+    "$VENV/bin/python" - "$PROVIDERS_FILE" "$PROVIDER_FILE" "$name" <<'PY'
+import json, sys
+pfile, active, name = sys.argv[1:4]
+data = json.loads(open(pfile).read())
+if name not in data:
+    print(f"unknown provider: {name}", file=sys.stderr)
+    print(f"available: {', '.join(data)}", file=sys.stderr); sys.exit(1)
+open(active, "w").write(name)
+print(f"→ switched to {name}")
+print(f"  model    {data[name]['model']}")
+print(f"  endpoint {data[name]['url']}")
+PY
+  else
+    printf '%s\n' "$name" > "$PROVIDER_FILE"; ok "provider → $name"
+  fi
+}
+
+post_menu() {
+  echo; rule
+  printf '  %s◆%s %sWhat next?%s   %s[r]%s resume   %s[n]%s new   %s[w]%s web UI   %s[p]%s provider   %s[q]%s quit\n' \
+    "$V1" "$RS" "$BD" "$RS" "$C1" "$RS" "$C1" "$RS" "$C1" "$RS" "$C1" "$RS" "$C1" "$RS"
+  local key=""; read -r -s -n 1 key || key="q"; echo; printf '%s' "$key"
+}
+
+switch_menu() {
+  [[ ! -f "$PROVIDERS_FILE" ]] && { warn "no providers.json"; return 1; }
+  echo; section "Switch provider"
+  "$VENV/bin/python" - "$PROVIDERS_FILE" "$PROVIDER_FILE" <<'PY'
+import json, sys
+pfile, active = sys.argv[1:3]
+data = json.loads(open(pfile).read())
+try: current = open(active).read().strip()
+except Exception: current = ""
+names = list(data)
+for i, n in enumerate(names, 1):
+    marker = "◆" if n == current else " "
+    print(f"    {i})  {marker} {n:<12} → {data[n]['model']}")
+print()
+choice = input("  > ").strip()
+if choice.isdigit():
+    i = int(choice) - 1
+    if 0 <= i < len(names):
+        name = names[i]; open(active, "w").write(name)
+        print(f"→ switched to {name}")
+        print(f"  model    {data[name]['model']}")
+        print(f"  endpoint {data[name]['url']}")
+PY
+}
+
+chat_loop() {
+  local next="new" choice
+  while true; do
+    clear; print_logo; print_tagline
+    export AYHANX_START="$next"
+    cmd_tui
+    choice="$(post_menu)"
+    case "$choice" in
+      r|R) next="resume" ;;
+      w|W) cmd_web 8080 ;;
+      p|P) switch_menu; sleep 1; next="new" ;;
+      q|Q) break ;;
+      *)   next="new" ;;
+    esac
+  done
+}
+
+cmd_ask() {
+  local prompt="$*"; [[ -z "$prompt" ]] && { err "empty prompt"; exit 1; }
+  "$VENV/bin/python" - "$prompt" <<'PY'
+import json, os, sys
+import httpx
+p = sys.argv[1]
+provider = os.environ.get("AYHANX_PROVIDER", "deepseek")
+base = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
+h = {"Authorization": f"Bearer {os.environ.get('DEEPSEEK_API_KEY', 'local')}", "Content-Type": "application/json"}
+if provider == "openrouter":
+    h["HTTP-Referer"] = "https://github.com/AyhanMansur/AyhanX-Agent"
+    h["X-Title"] = "AyhanX-Agent"
+r = httpx.post(f"{base}/chat/completions", headers=h,
+               json={"model": os.environ.get("DEEPSEEK_MODEL", "deepseek-chat"),
+                     "messages": [{"role": "user", "content": p}]}, timeout=120)
+if r.status_code >= 400:
+    try: msg = r.json().get("error", {}).get("message", r.text)
+    except Exception: msg = r.text
+    hints = {401: "invalid key", 402: "no balance", 404: "model not found", 429: "rate limited"}
+    hint = hints.get(r.status_code, "")
+    if provider in ("ollama","lmstudio","vllm","llamacpp","localai"): hint = "is the server running?"
+    print(f"HTTP {r.status_code}: {msg}" + (f" ({hint})" if hint else ""), file=sys.stderr); sys.exit(1)
+print(r.json()["choices"][0]["message"]["content"])
+PY
+}
+
+cmd_health() {
+  section "Connection check"
+  "$VENV/bin/python" - <<'PY'
+import os
+import httpx
+provider = os.environ.get("AYHANX_PROVIDER", "deepseek")
+base = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
+model = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+h = {"Authorization": f"Bearer {os.environ.get('DEEPSEEK_API_KEY', 'local')}", "Content-Type": "application/json"}
+if provider == "openrouter":
+    h["HTTP-Referer"] = "https://github.com/AyhanMansur/AyhanX-Agent"
+    h["X-Title"] = "AyhanX-Agent"
+G, R, M, N = "\033[38;5;84m", "\033[38;5;203m", "\033[38;5;245m", "\033[0m"
+print(f"  {M}provider{N}  {provider}")
+print(f"  {M}endpoint{N}  {base}")
+print(f"  {M}model{N}     {model}")
+try:
+    if provider in ("ollama","lmstudio","vllm","llamacpp","localai"):
+        try:
+            mr = httpx.get(f"{base}/models", headers=h, timeout=10)
+            if mr.status_code == 200:
+                ids = [m["id"] for m in mr.json().get("data", [])]
+                if ids: print(f"  {M}models{N}    {', '.join(ids[:4])}{' …' if len(ids)>4 else ''}")
+        except Exception: pass
+    r = httpx.post(f"{base}/chat/completions", headers=h, timeout=30,
+                   json={"model": model, "max_tokens": 5, "messages": [{"role": "user", "content": "say OK"}]})
+    print(f"  {M}status{N}    {r.status_code}")
+    j = r.json()
+    if "choices" in j:
+        print(f"  {M}reply{N}     {j['choices'][0]['message']['content']!r}")
+        print(f"  {G}✔ connected{N}")
+    else:
+        print(f"  {M}body{N}      {r.text[:300]}")
+        print(f"  {R}✘ failed{N}")
+except Exception as e:
+    hint = "  → is the server running?" if provider in ("ollama","lmstudio","vllm","llamacpp","localai") else ""
+    print(f"  {R}✘ {type(e).__name__}: {e}{N}{hint}")
+PY
+}
+
+cmd_config() {
+  section "Files"
+  info "provider ${AYHANX_PROVIDER:-deepseek}"
+  info "config   $CONFIG_FILE"
+  info "env      $ENV_FILE"
+  info "providers $PROVIDERS_FILE"
+  info "chats    $CHATS_DIR"
+  echo
+  [[ -f "$PROVIDERS_FILE" ]] && { section "Providers"; cat "$PROVIDERS_FILE"; echo; }
+  [[ -f "$CONFIG_FILE" ]] && { section "Config"; cat "$CONFIG_FILE"; echo; }
+}
+
+cmd_version() {
+  section "Version"
+  info "AyhanX-Agent  $VERSION"
+  info "repo       $REPO_URL"
+  info "provider   ${AYHANX_PROVIDER:-deepseek}"
+  info "app dir    $APP_DIR"
+  [[ -x "$VENV/bin/python" ]] && info "python     $("$VENV/bin/python" --version 2>&1)"
+}
+
+# ============================================================================
+#  MAIN
+# ============================================================================
+main() {
+  mkdir -p "$APP_DIR"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --provider)   shift; export AYHANX_PROVIDER="${1:-}"; shift || break ;;
+      --provider=*) export AYHANX_PROVIDER="${1#*=}"; shift ;;
+      --)           shift; break ;;
+      ask|health|config|version|switch|chat|tui|web) break ;;
+      *)            break ;;
+    esac
+  done
+
+  case "${1:-chat}" in
+    ask)     shift; ensure_env; ensure_key; cmd_ask "$@" ;;
+    health)  ensure_env; ensure_key; cmd_health ;;
+    config)  cmd_config ;;
+    version) cmd_version ;;
+    switch)  shift; ensure_env; ensure_key; cmd_switch "$@" ;;
+    web)
+      shift
+      ensure_env; ensure_key
+      section "Preparing web UI"
+      write_tools; write_tui; write_server
+      ok "runner ready"
+      sleep 0.2
+      cmd_web "$@"
+      ;;
+    chat|tui|"")
+      ensure_env; ensure_key
+      section "Starting"
+      write_tools; write_tui; write_server
+      ok "runner ready"
+      sleep 0.2
+      chat_loop
+      print_outro
+      ;;
+    *)
+      err "unknown mode: $1"
+      info "usage: $0 [--provider NAME] [chat|web|ask|health|config|version|switch]"
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"
